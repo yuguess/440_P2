@@ -2,19 +2,22 @@ package tribimpl
 
 import (
 	"P2-f12/official/tribproto"
+    "P2-f12/contrib/libstore"
     "P2-f12/official/lsplog"
 )
 
 type Tribserver struct {
+    store  *libstore.Libstore
 }
 
 func NewTribserver(storagemaster string, myhostport string) *Tribserver {
-	return &Tribserver{}
+    st, _ := libstore.NewLibstore("test", "test", 0)
+	return &Tribserver{st}
 }
 
 func (ts *Tribserver) CreateUser(args *tribproto.CreateUserArgs,
                                 reply *tribproto.CreateUserReply) error {
-
+    ts.store.Get("test")
     lsplog.Vlogf(0, "server createUser method was invoked !")
 	// Set responses by modifying the reply structure, like:
 	// reply.Status = tribproto.EEXISTS
