@@ -1,8 +1,10 @@
-/** @file libstore-api.go
- *  @brief implementation of libstore-api 
- *  @author Adrian() Dalong CHENG (dalongc)
- *  @date 2012-10-11
- */
+// DO NOT CHANGE THIS FILE
+
+// Definition of API for libstore 2012.
+// This file defines all of the publicly accessible values and functions.
+// The actual implementation of these functions is provided in the
+// libstore-impl.go file, which you must write.
+
 package libstore
 
 import (
