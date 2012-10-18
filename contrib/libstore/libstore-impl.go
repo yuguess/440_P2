@@ -1,8 +1,4 @@
-/** @file libstore-impl.go
- *  @brief implementation of libstore 
- *  @author Adrian() Dalong CHENG (dalongc)
- *  @date 2012-10-11
- */
+// Your implementation of the libstore should go here.
 package libstore
 
 import (
@@ -13,12 +9,10 @@ type Libstore struct {
 }
 
 func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
-    return &Libstore{}, nil
-	//return nil, lsplog.NotImplemented("iNewLibstore")
+	return nil, lsplog.NotImplemented("iNewLibstore")
 }
 
 func (ls *Libstore) iGet(key string) (string, error) {
-    lsplog.Vlogf(0, "libstore iGet method was invoked ! key %s", key)
 	return "", lsplog.NotImplemented("iGet")
 }
 
