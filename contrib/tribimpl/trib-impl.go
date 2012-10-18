@@ -5,7 +5,7 @@ import (
   "fmt"
   "time"
 	"P2-f12/official/tribproto"
-  "P2-f12/official/libstore"
+  "P2-f12/contrib/libstore"
   "P2-f12/official/lsplog"
 )
 
@@ -36,8 +36,8 @@ func (ts *Tribserver) CreateUser(
   var trib_key, fllw_key string
   var err error
 
-  trib_key = fmt.Sprintf("%s_T", args.Userid)
-  fllw_key = fmt.Sprintf("%s_F", args.Userid)
+  trib_key = fmt.Sprintf("%s:T", args.Userid)
+  fllw_key = fmt.Sprintf("%s:F", args.Userid)
 
   _, err = ts.Store.GetList(trib_key)
   if !lsplog.CheckReport(1, err) {
@@ -68,7 +68,7 @@ func (ts *Tribserver) AddSubscription(
   var fllw_key string
   var err error
 
-  fllw_key = fmt.Sprintf("%s_F", args.Userid)
+  fllw_key = fmt.Sprintf("%s:F", args.Userid)
   err = ts.Store.AppendToList(fllw_key, args.Targetuser)
 
   if lsplog.CheckReport(1, err) {
@@ -86,7 +86,7 @@ func (ts *Tribserver) RemoveSubscription(
   var fllw_key string
   var err error
 
-  fllw_key = fmt.Sprintf("%s_F", args.Userid)
+  fllw_key = fmt.Sprintf("%s:F", args.Userid)
   err = ts.Store.RemoveFromList(fllw_key, args.Targetuser)
 
   if lsplog.CheckReport(1, err) {
@@ -105,7 +105,7 @@ func (ts *Tribserver) GetSubscriptions(
   var fllw_ids []string
   var err error
 
-  fllw_key = fmt.Sprintf("%s_F", args.Userid)
+  fllw_key = fmt.Sprintf("%s:F", args.Userid)
 
   fllw_ids, err = ts.Store.GetList(fllw_key)
   if lsplog.CheckReport(1, err) {
@@ -127,7 +127,7 @@ func (ts *Tribserver) PostTribble(
   var enc []byte
   var err error
 
-  trib_key = fmt.Sprintf("%s_T", args.Userid)
+  trib_key = fmt.Sprintf("%s:T", args.Userid)
 
   err = ts.Store.AppendToList(trib_key, string(ts.Id))
   if lsplog.CheckReport(1, err) {
@@ -164,7 +164,7 @@ func (ts *Tribserver) GetTribbles(
   var trib_enc string
   var err error
 
-  trib_key = fmt.Sprintf("%s_T", args.Userid)
+  trib_key = fmt.Sprintf("%s:T", args.Userid)
 
   trib_ids, err = ts.Store.GetList(trib_key)
   if lsplog.CheckReport(1, err) {
@@ -184,7 +184,37 @@ func (ts *Tribserver) GetTribbles(
 	return nil
 }
 
+// collect all tribbles from all users followed
+// TODO: trim the list by sorting and taking only the most recent 100 tribbles
 func (ts *Tribserver) GetTribblesBySubscription(
     args *tribproto.GetTribblesArgs, reply *tribproto.GetTribblesReply) error {
+  var fllw_key string
+  var fllw_ids []string
+  var err error
+  var getArgs tribproto.GetTribblesArgs
+  var getReply tribproto.GetTribblesReply
+
+  fllw_key = fmt.Sprintf("%s:F", args.Userid)
+
+  fllw_ids, err = ts.Store.GetList(fllw_key)
+  if lsplog.CheckReport(1, err) {
+    reply.Status = tribproto.ENOSUCHUSER
+    reply.Tribbles = nil
+    return nil
+  }
+
+  reply.Status = tribproto.OK
+
+  for i := 0; i < len(fllw_ids); i++ {
+    err = ts.GetTribbles(&getArgs, &getReply)
+    if lsplog.CheckReport(1, err) {
+      reply.Status = tribproto.ENOSUCHTARGETUSER
+      reply.Tribbles = nil
+      return nil
+    }
+
+    reply.Tribbles = append(reply.Tribbles, getReply.Tribbles...)
+  }
+
 	return nil
 }
