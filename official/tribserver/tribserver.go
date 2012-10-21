@@ -11,7 +11,8 @@ import (
 	"net/http"
 	"net/rpc"
 	"log"
-	"P2-f12/official/tribimpl"
+  "P2-f12/contrib/tribimpl"
+	//"P2-f12/official/tribimpl"
 )
 
 

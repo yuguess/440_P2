@@ -4,6 +4,7 @@ import (
   "encoding/json"
   "fmt"
   "time"
+  "strconv"
 	"P2-f12/official/tribproto"
   "P2-f12/contrib/libstore"
   "P2-f12/official/lsplog"
@@ -11,10 +12,13 @@ import (
 
 type Tribserver struct {
   Store *libstore.Libstore
-  Id uint32
+  Id int
 }
 
 func NewTribserver(storagemaster, myhostport string) *Tribserver {
+  lsplog.SetVerbose(3)
+  lsplog.Vlogf(3, "st_master:%s, port:%s", storagemaster, myhostport)
+
   var svr *Tribserver = new(Tribserver)
   var err error
 
@@ -26,13 +30,14 @@ func NewTribserver(storagemaster, myhostport string) *Tribserver {
     return nil
   }
 
-  svr.Id = 0
+  svr.Id = 1
 
-	return svr
+  return svr
 }
 
 func (ts *Tribserver) CreateUser(
     args *tribproto.CreateUserArgs, reply *tribproto.CreateUserReply) error {
+
   var trib_key, fllw_key string
   var err error
 
@@ -40,21 +45,21 @@ func (ts *Tribserver) CreateUser(
   fllw_key = fmt.Sprintf("%s:F", args.Userid)
 
   _, err = ts.Store.GetList(trib_key)
-  if !lsplog.CheckReport(1, err) {
+  if err == nil {
     reply.Status = tribproto.EEXISTS
-	  return nil
+    return nil
   }
 
   err = ts.Store.Put(trib_key, "")
   if lsplog.CheckReport(2, err) {
     reply.Status = tribproto.EEXISTS
-    return err
+    return nil
   }
 
   err = ts.Store.Put(fllw_key, "")
   if lsplog.CheckReport(2, err) {
     reply.Status = tribproto.EEXISTS
-    return err
+    return nil
   }
 
   reply.Status = tribproto.OK
@@ -127,12 +132,17 @@ func (ts *Tribserver) PostTribble(
   var enc []byte
   var err error
 
+  //do not allow empty post
+  if args.Contents == "" {
+    return nil
+  }
+
   trib_key = fmt.Sprintf("%s:T", args.Userid)
 
-  err = ts.Store.AppendToList(trib_key, string(ts.Id))
+  err = ts.Store.AppendToList(trib_key, strconv.Itoa(ts.Id))
   if lsplog.CheckReport(1, err) {
     reply.Status = tribproto.ENOSUCHUSER
-    return err
+    return nil
   }
 
   trib.Userid = args.Userid
@@ -145,7 +155,7 @@ func (ts *Tribserver) PostTribble(
     return err
   }
 
-  err = ts.Store.Put(string(ts.Id), string(enc))
+  err = ts.Store.Put(strconv.Itoa(ts.Id), string(enc))
   if lsplog.CheckReport(1, err) {
     reply.Status = tribproto.OK
     return err
@@ -174,11 +184,16 @@ func (ts *Tribserver) GetTribbles(
   }
 
   reply.Status = tribproto.OK
+  fmt.Printf("len %d\n",  len(trib_ids))
   reply.Tribbles = make([]tribproto.Tribble, len(trib_ids))
 
   for i := 0; i < len(trib_ids); i++ {
     trib_enc, err = ts.Store.Get(trib_ids[i])
-    _ = json.Unmarshal([]byte(trib_enc), reply.Tribbles[i])
+    if lsplog.CheckReport(1, err) {
+      return lsplog.MakeErr("Get Tribbles Message Error")
+    }
+    fmt.Printf("unmarshal string %s\n", trib_enc)
+    _ = json.Unmarshal([]byte(trib_enc), &(reply.Tribbles[i]))
   }
 
 	return nil
@@ -206,6 +221,7 @@ func (ts *Tribserver) GetTribblesBySubscription(
   reply.Status = tribproto.OK
 
   for i := 0; i < len(fllw_ids); i++ {
+    getArgs.Userid = fllw_ids[i]
     err = ts.GetTribbles(&getArgs, &getReply)
     if lsplog.CheckReport(1, err) {
       reply.Status = tribproto.ENOSUCHTARGETUSER
