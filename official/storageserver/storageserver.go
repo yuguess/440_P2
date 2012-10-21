@@ -25,7 +25,7 @@ func main() {
 	flag.Parse()
 	if *storageMasterNodePort == "" {
 		if *portnum == 0 {
-			*portnum = 9009
+			*portnum = 9999
 		}
 		// Single node execution
 		*storageMasterNodePort = fmt.Sprintf("localhost:%d", *portnum)

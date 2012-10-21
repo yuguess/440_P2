@@ -11,7 +11,7 @@ package storageimpl
 
 import (
   //"bytes"
-  //"fmt"
+  "fmt"
   "P2-f12/official/storageproto"
   "P2-f12/official/lsplog"
   "encoding/json"
@@ -23,6 +23,8 @@ import (
 
 type Storageserver struct {
   hash map[string] []byte
+  portnum int
+  nodeid uint32
 }
 
 func reallySeedTheDamnRNG() {
@@ -34,9 +36,11 @@ func NewStorageserver(master string, numnodes int, portnum int,
                                         nodeid uint32) *Storageserver {
   lsplog.SetVerbose(3)
   lsplog.Vlogf(3, "Create New Storage Server")
+  lsplog.Vlogf(3, "master:%s, numnodes:%d, portnum:%d, nodeid:%d",
+                                      master, numnodes, portnum, nodeid)
 
   hash := make(map[string] []byte)
-	return &Storageserver{hash}
+	return &Storageserver{hash, portnum, nodeid}
 }
 
 // Non-master servers to the master
@@ -45,8 +49,13 @@ func (ss *Storageserver) RegisterServer(args *storageproto.RegisterArgs,
 	return nil
 }
 
+//dummy version
 func (ss *Storageserver) GetServers(args *storageproto.GetServersArgs,
                                     reply *storageproto.RegisterReply) error {
+  reply.Ready = true
+  hostport := fmt.Sprintf("localhost:%d", ss.portnum)
+  node := storageproto.Node{hostport, ss.nodeid}
+  reply.Servers = []storageproto.Node{node}
 	return nil
 }
 

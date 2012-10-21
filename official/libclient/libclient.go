@@ -6,7 +6,7 @@ package main
 // system.
 
 import (
-	"P2-f12/official/libstore"
+	"P2-f12/contrib/libstore"
 	"flag"
 	"fmt"
 	"log"
@@ -28,7 +28,7 @@ const (
 	CMD_GET
 )
 
-var portnum *int = flag.Int("port", 9009, "master server port # to connect to")
+var portnum *int = flag.Int("port", 9999, "master server port # to connect to")
 var serverAddress *string = flag.String("host", "localhost", "server host to connect to")
 var handleLeases *bool = flag.Bool("l", false, "Run persistently.  Request leases and report lease revocation requests.")
 var forceLease *bool = flag.Bool("fl", false, "Force a lease request on every get / getlist.  Default is to allow libstore to make the decision.  Requires -l")
