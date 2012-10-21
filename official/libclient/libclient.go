@@ -113,8 +113,9 @@ func main() {
 				fmt.Println("error: ", err)
 			} else {
 				for _, i := range(val) {
-					fmt.Println("  ", i)
+					fmt.Printf("%s  ", i)
 				}
+				fmt.Printf("\n")
 			}
 		case "p", "la", "lr":
 			var err error

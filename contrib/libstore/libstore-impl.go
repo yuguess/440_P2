@@ -3,21 +3,36 @@ package libstore
 
 import (
   "fmt"
+  "net"
+  "net/http"
   "net/rpc"
   "sort"
   "strings"
   "time"
   "P2-f12/official/lsplog"
   "P2-f12/official/storageproto"
+  "P2-f12/official/cacherpc"
 )
 
 type NodeList []storageproto.Node
 
+type KeyInfo struct {
+  FirstQuery time.time
+  NumQueries int
+  Granted bool
+  Duration int
+  Data interface{}
+}
+
 type Libstore struct {
   Nodes NodeList
   RPCConn []*rpc.Client
+
+  LeaseConn net.Listener
   Addr string
   Flags int
+
+  Leases map [string] KeyInfo
 }
 
 func (list NodeList) Len() int {
@@ -41,6 +56,17 @@ func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
 
   store.Addr = myhostport
   store.Flags = flags
+
+  if store.Addr != "" {
+    store.LeaseConn, err = net.Listen("tcp", store.Addr)
+    if lsplog.CheckReport(1, err) {
+      return nil, err
+    }
+
+    rpc.Register(cacherpc.NewCacheRPC(&store))
+    rpc.HandleHTTP()
+    go http.Serve(store.LeaseConn, nil)
+  }
 
   master, err = rpc.DialHTTP("tcp", server)
   if lsplog.CheckReport(1, err) {
@@ -119,14 +145,14 @@ func (ls *Libstore) GetServer(key string) (*rpc.Client, error) {
 
 // TODO: return storageproto error to tribserver
 func (ls *Libstore) iGet(key string) (string, error) {
-  var args storageproto.GetArgs
+  var cli *rpc.Client
+  var args storageproto.GetArgs = storageproto.GetArgs{key, false, ls.Addr}
   var reply storageproto.GetReply
   var err error
-  var cli *rpc.Client
 
-  args.Key = key
-  args.WantLease = false
-  args.LeaseClient = ls.Addr
+  if (ls.Flags & ALWAYS_LEASE) != 0 {
+    args.WantLease = true
+  }
 
   cli, err = ls.GetServer(key)
   if lsplog.CheckReport(1, err) {
@@ -146,9 +172,9 @@ func (ls *Libstore) iGet(key string) (string, error) {
 }
 
 func (ls *Libstore) iPut(key, value string) error {
+  var cli *rpc.Client
   var args storageproto.PutArgs = storageproto.PutArgs{key, value}
   var reply storageproto.PutReply
-  var cli *rpc.Client
   var err error
 
   cli, err = ls.GetServer(key)
@@ -169,10 +195,14 @@ func (ls *Libstore) iPut(key, value string) error {
 }
 
 func (ls *Libstore) iGetList(key string) ([]string, error) {
+  var cli *rpc.Client
   var args storageproto.GetArgs = storageproto.GetArgs{key, false, ls.Addr}
   var reply storageproto.GetListReply
-  var cli *rpc.Client
   var err error
+
+  if (ls.Flags & ALWAYS_LEASE) != 0 {
+    args.WantLease = true
+  }
 
   cli, err = ls.GetServer(key)
   if lsplog.CheckReport(1, err) {
@@ -192,9 +222,9 @@ func (ls *Libstore) iGetList(key string) ([]string, error) {
 }
 
 func (ls *Libstore) iRemoveFromList(key, removeitem string) error {
+  var cli *rpc.Client
   var args storageproto.PutArgs = storageproto.PutArgs{key, removeitem}
   var reply storageproto.PutReply
-  var cli *rpc.Client
   var err error
 
   cli, err = ls.GetServer(key)
@@ -215,9 +245,9 @@ func (ls *Libstore) iRemoveFromList(key, removeitem string) error {
 }
 
 func (ls *Libstore) iAppendToList(key, newitem string) error {
+  var cli *rpc.Client
   var args storageproto.PutArgs = storageproto.PutArgs{key, newitem}
   var reply storageproto.PutReply
-  var cli *rpc.Client
   var err error
 
   cli, err = ls.GetServer(key)
@@ -234,5 +264,12 @@ func (ls *Libstore) iAppendToList(key, newitem string) error {
     return MakeErr("AppendToList()", reply.Status)
   }
 
+  return nil
+}
+
+func (ls *Libstore) RevokeLease(
+    args *storageproto.RevokeLeaseArgs,
+    reply *storageproto.RevokeLeaseReply) error {
+  reply.Status = storageproto.OK
   return nil
 }
