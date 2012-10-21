@@ -17,7 +17,7 @@ import (
 type NodeList []storageproto.Node
 
 type KeyInfo struct {
-  FirstQuery time.time
+  FirstQuery time.Time
   NumQueries int
   Granted bool
   Duration int
