@@ -10,6 +10,11 @@ package storageimpl
 
 
 import (
+  "P2-f12/official/storageproto"
+  "math/rand"
+  "math"
+  "math/big"
+  crand "crypto/rand"
 )
 
 type Storageserver struct {
@@ -17,7 +22,7 @@ type Storageserver struct {
 
 func reallySeedTheDamnRNG() {
 	randint, _ := crand.Int(crand.Reader, big.NewInt(math.MaxInt64))
-	rand.Seed( randint.Int64())
+	rand.Seed(randint.Int64())
 }
 
 func NewStorageserver(master string, numnodes int, portnum int, nodeid uint32) *Storageserver {
@@ -53,5 +58,11 @@ func (ss *Storageserver) AppendToList(args *storageproto.PutArgs, reply *storage
 }
 
 func (ss *Storageserver) RemoveFromList(args *storageproto.PutArgs, reply *storageproto.PutReply) error {
+ 	return nil
+}
+
+func (ss *Storageserver) RevokeLease(
+    args *storageproto.RevokeLeaseArgs,
+    reply *storageproto.RevokeLeaseReply) error {
  	return nil
 }

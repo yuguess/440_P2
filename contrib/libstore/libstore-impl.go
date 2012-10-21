@@ -2,19 +2,34 @@
 package libstore
 
 import (
-  "P2-f12/official/lsplog"
-  "P2-f12/official/storageproto"
+  "fmt"
   "net/rpc"
+  "sort"
   "strings"
   "time"
-  "hash/fnv"
+  "P2-f12/official/lsplog"
+  "P2-f12/official/storageproto"
 )
 
+type NodeList []storageproto.Node
+
 type Libstore struct {
-  Nodes []storageproto.Node
+  Nodes NodeList
   RPCConn []*rpc.Client
   Addr string
   Flags int
+}
+
+func (list NodeList) Len() int {
+  return len(list)
+}
+
+func (list NodeList) Swap(i, j int) {
+  list[j], list[i] = list[i], list[j]
+}
+
+func (list NodeList) Less(i, j int) bool {
+  return list[i].NodeID < list[j].NodeID
 }
 
 func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
@@ -36,7 +51,7 @@ func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
 
   for i := 0; (reply.Ready == false) && (i < 5); i++ {
     time.Sleep(1000 * time.Millisecond)
-    master.Call("GetServers", &args, &reply)
+    master.Call("StorageRPC.GetServers", &args, &reply)
   }
 
   // couldn't get list of servers from master
@@ -46,30 +61,60 @@ func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
 
   store.Nodes = reply.Servers
   store.RPCConn = make([]*rpc.Client, len(store.Nodes))
-  store.RPCConn[0] = master
+
+  sort.Sort(store.Nodes)
+  for i := 0; i < len(store.Nodes); i++ {
+    fmt.Printf("%v\n", store.Nodes[i])
+  }
 
   return &store, nil
 }
 
-func Storehash(key string) uint32 {
-  hasher := fnv.New32()
-  hasher.Write([]byte(key))
-  return hasher.Sum32()
+var StatusName = map[int]string {
+  storageproto.OK:            "OK",
+  storageproto.EKEYNOTFOUND:  "KEYNOTFOUND",
+  storageproto.EITEMNOTFOUND: "ITEMNOTFOUND",
+  storageproto.EWRONGSERVER:  "WRONGSERVER",
+  storageproto.EPUTFAILED:    "PUTFAILED",
+  storageproto.EITEMEXISTS:   "ITEMEXISTS",
 }
 
-// supports only one server
-// TODO: return connection to server in consistent hash ring, opening
-// connection if necessary
+func MakeErr(function string, status int) lsplog.LspErr {
+  var str string
+  str = fmt.Sprintf("%s failed: %s (%d)", function, StatusName[status], status)
+
+  return lsplog.MakeErr(str)
+}
+
+/**
+ * Hashes a key and returns an RPC connection to the server responsible for
+ * storing it. If an RPC connection is not established, create one and store it
+ * for future accesses.
+ * */
 func (ls *Libstore) GetServer(key string) (*rpc.Client, error) {
-  var shard string
   var id uint32
+  var svr int
+  var err error
 
-  shard = strings.Split(key, ":")[0]
-  id = Storehash(shard)
+  id = Storehash(strings.Split(key, ":")[0])
 
-  lsplog.Vlogf(4, "%s -> %d\n", key, id)
+  // returns the index of the first server after the key's hash
+  svr = sort.Search(
+      len(ls.Nodes), func(i int) bool { return ls.Nodes[i].NodeID > id })
+  svr %= len(ls.Nodes)
 
-  return ls.RPCConn[0], nil
+  fmt.Printf("%s -> %d (%d)\n", key, id, svr)
+
+  if ls.RPCConn[svr] == nil {
+    fmt.Printf("Caching RPC connection to %s.\n", ls.Nodes[svr].HostPort)
+
+    ls.RPCConn[svr], err = rpc.DialHTTP("tcp", ls.Nodes[svr].HostPort)
+    if lsplog.CheckReport(1, err) {
+      return nil, err
+    }
+  }
+
+  return ls.RPCConn[svr], nil
 }
 
 // TODO: return storageproto error to tribserver
@@ -94,7 +139,7 @@ func (ls *Libstore) iGet(key string) (string, error) {
   }
 
   if reply.Status != storageproto.OK {
-    return "", lsplog.MakeErr("Get() failed.")
+    return "", MakeErr("Get()", reply.Status)
   }
 
   return reply.Value, nil
@@ -117,7 +162,7 @@ func (ls *Libstore) iPut(key, value string) error {
   }
 
   if reply.Status != storageproto.OK {
-    return lsplog.MakeErr("Put() failed.")
+    return MakeErr("Put()", reply.Status)
   }
 
   return nil
@@ -140,7 +185,7 @@ func (ls *Libstore) iGetList(key string) ([]string, error) {
   }
 
   if reply.Status != storageproto.OK {
-    return nil, lsplog.MakeErr("GetList() failed.")
+    return nil, MakeErr("GetList()", reply.Status)
   }
 
   return reply.Value, nil
@@ -163,7 +208,7 @@ func (ls *Libstore) iRemoveFromList(key, removeitem string) error {
   }
 
   if reply.Status != storageproto.OK {
-    return lsplog.MakeErr("RemoveFromList() failed.")
+    return MakeErr("RemoveFromList()", reply.Status)
   }
 
   return nil
@@ -186,7 +231,7 @@ func (ls *Libstore) iAppendToList(key, newitem string) error {
   }
 
   if reply.Status != storageproto.OK {
-    return lsplog.MakeErr("AppendToList() failed.")
+    return MakeErr("AppendToList()", reply.Status)
   }
 
   return nil

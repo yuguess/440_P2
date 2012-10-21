@@ -5,7 +5,7 @@ package main
 // DO NOT MODIFY THIS FILE FOR YOUR PROJECT
 
 import (
-	"P2-f12/official/storageimpl" // 'official' vs 'contrib' here
+	"P2-f12/contrib/storageimpl" // 'official' vs 'contrib' here
 	"P2-f12/official/storagerpc"
 	"flag"
 	"fmt"
@@ -25,7 +25,7 @@ func main() {
 	flag.Parse()
 	if *storageMasterNodePort == "" {
 		if *portnum == 0 {
-			*portnum = 9009
+			*portnum = 9999
 		}
 		// Single node execution
 		*storageMasterNodePort = fmt.Sprintf("localhost:%d", *portnum)
