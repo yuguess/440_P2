@@ -135,11 +135,12 @@ func (ss *Storageserver) AppendToList(args *storageproto.PutArgs,
   val, present := ss.hash[args.Key]
   if !present {
     lsplog.Vlogf(3, "try to append to %s list %s not exist", args.Key, args.Value)
-      reply.Status = storageproto.EKEYNOTFOUND
-      return nil
+    reply.Status = storageproto.EKEYNOTFOUND
+    return nil
   }
 
   lsplog.Vlogf(3, "storage append to %s list %s", args.Key, args.Value)
+
   var list []string;
   err := json.Unmarshal([]byte(val), &list)
   if err != nil {
@@ -154,7 +155,7 @@ func (ss *Storageserver) AppendToList(args *storageproto.PutArgs,
     }
   }
 
-  list = append(list, []string{args.Value}...)
+  list = append([]string{args.Value}, list...)
 
   ss.hash[args.Key], err = json.Marshal(list)
   if err != nil {

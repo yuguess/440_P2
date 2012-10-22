@@ -6,7 +6,7 @@ import (
 	//"flag"
 	"P2-f12/official/tribproto"
   "P2-f12/official/lsplog"
-	//"P2-f12/official/tribclient"
+	"P2-f12/official/tribclient"
 	//"strings"
 	//"time"
 )
@@ -26,7 +26,7 @@ func main() {
 
   serverAddress := "localhost"
 	serverPort := fmt.Sprintf("%d", 9010)
-  client, _ := NewTribbleclient(serverAddress, serverPort)
+  client, _ := tribclient.NewTribbleclient(serverAddress, serverPort)
 
   //create user
   status, err := client.CreateUser("1")
@@ -84,7 +84,6 @@ func main() {
   tribbles, status, err = client.GetTribblesBySubscription("1")
   fmt.Printf("status:%d\n", status)
   PrintTribbles(tribbles)
-
 
   //test removesubscription
   status, err = client.RemoveSubscription("1", "2")
