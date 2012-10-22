@@ -3,38 +3,36 @@ package libstore
 
 import (
   "fmt"
+  "net"
+  "net/http"
   "net/rpc"
   "sort"
   "strings"
   "time"
   "P2-f12/official/lsplog"
   "P2-f12/official/storageproto"
+  "P2-f12/official/cacherpc"
 )
 
 type NodeList []storageproto.Node
 
-type Libstore struct {
-/*
-  store_clnt *rpc.Client
+type KeyInfo struct {
+  FirstQuery time.Time
+  NumQueries int
+  Granted bool
+  Duration int
+  Data interface{}
 }
 
-func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
-  lsplog.SetVerbose(3)
-  //store_clnt, err := rpc.DialHTTP("tcp", net.JoinHostPort(server, myhostport))
-  store_clnt, err := rpc.DialHTTP("tcp", net.JoinHostPort("localhost", "9009"))
-	if err != nil {
-    lsplog.CheckReport(1, err)
-    return nil, lsplog.MakeErr("libstore can not connect to storage server")
-	}
-
-  libstore_server := &Libstore{store_clnt}
-  return libstore_server, nil
-	//return nil, lsplog.NotImplemented("iNewLibstore")
-*/
+type Libstore struct {
   Nodes NodeList
   RPCConn []*rpc.Client
+
+  LeaseConn net.Listener
   Addr string
   Flags int
+
+  Leases map [string] KeyInfo
 }
 
 func (list NodeList) Len() int {
@@ -58,6 +56,17 @@ func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
 
   store.Addr = myhostport
   store.Flags = flags
+
+  if store.Addr != "" {
+    store.LeaseConn, err = net.Listen("tcp", store.Addr)
+    if lsplog.CheckReport(1, err) {
+      return nil, err
+    }
+
+    rpc.Register(cacherpc.NewCacheRPC(&store))
+    rpc.HandleHTTP()
+    go http.Serve(store.LeaseConn, nil)
+  }
 
   master, err = rpc.DialHTTP("tcp", server)
   if lsplog.CheckReport(1, err) {
@@ -136,23 +145,14 @@ func (ls *Libstore) GetServer(key string) (*rpc.Client, error) {
 
 // TODO: return storageproto error to tribserver
 func (ls *Libstore) iGet(key string) (string, error) {
-  /*
-  args := &storageproto.GetArgs{key, false, ""}
-  reply := &storageproto.GetReply{}
-
-  ls.store_clnt.Call("StorageRPC.Get", args, reply)
-
-  if reply.Status == storageproto.EKEYNOTFOUND {
-    return  "", lsplog.MakeErr("Get key not found")
-  */
-  var args storageproto.GetArgs
+  var cli *rpc.Client
+  var args storageproto.GetArgs = storageproto.GetArgs{key, false, ls.Addr}
   var reply storageproto.GetReply
   var err error
-  var cli *rpc.Client
 
-  args.Key = key
-  args.WantLease = false
-  args.LeaseClient = ls.Addr
+  if (ls.Flags & ALWAYS_LEASE) != 0 {
+    args.WantLease = true
+  }
 
   cli, err = ls.GetServer(key)
   if lsplog.CheckReport(1, err) {
@@ -172,24 +172,9 @@ func (ls *Libstore) iGet(key string) (string, error) {
 }
 
 func (ls *Libstore) iPut(key, value string) error {
-/*
-  args := &storageproto.PutArgs{key, value}
-  reply := &storageproto.PutReply{}
-
-  ls.store_clnt.Call("StorageRPC.Put", args, reply)
-
-  if reply.Status == storageproto.EITEMEXISTS {
-    return  lsplog.MakeErr("Duplicate Put !")
-  }
-
-	return nil
-
-	//return lsplog.NotImplemented("iPut")
-}
-  */
+  var cli *rpc.Client
   var args storageproto.PutArgs = storageproto.PutArgs{key, value}
   var reply storageproto.PutReply
-  var cli *rpc.Client
   var err error
 
   cli, err = ls.GetServer(key)
@@ -202,36 +187,22 @@ func (ls *Libstore) iPut(key, value string) error {
     return err
   }
 
-  if reply.Status == storageproto.EITEMEXISTS {
-    return  lsplog.MakeErr("Duplicate Put !")
-  }
-
-  /*
   if reply.Status != storageproto.OK {
     return MakeErr("Put()", reply.Status)
-  }*/
+  }
 
   return nil
 }
-/*
-func (ls *Libstore) iGetList(key string) ([]string, error) {
-  args := &storageproto.GetArgs{key, false, ""}
-  reply := &storageproto.GetListReply{}
-
-  ls.store_clnt.Call("StorageRPC.GetList", args, reply)
-
-  if reply.Status == storageproto.EKEYNOTFOUND {
-    return  nil, lsplog.MakeErr("GetList key not found")
-  }
-
-	return reply.Value, nil
-}*/
 
 func (ls *Libstore) iGetList(key string) ([]string, error) {
+  var cli *rpc.Client
   var args storageproto.GetArgs = storageproto.GetArgs{key, false, ls.Addr}
   var reply storageproto.GetListReply
-  var cli *rpc.Client
   var err error
+
+  if (ls.Flags & ALWAYS_LEASE) != 0 {
+    args.WantLease = true
+  }
 
   cli, err = ls.GetServer(key)
   if lsplog.CheckReport(1, err) {
@@ -243,38 +214,17 @@ func (ls *Libstore) iGetList(key string) ([]string, error) {
     return nil, err
   }
 
-  if reply.Status == storageproto.EKEYNOTFOUND {
-    return  nil, lsplog.MakeErr("GetList key not found")
-  }
-
-/*
   if reply.Status != storageproto.OK {
     return nil, MakeErr("GetList()", reply.Status)
   }
-*/
+
   return reply.Value, nil
 }
-/*
+
 func (ls *Libstore) iRemoveFromList(key, removeitem string) error {
-  args := &storageproto.PutArgs{key, removeitem}
-  reply := &storageproto.PutReply{}
-
-  ls.store_clnt.Call("StorageRPC.RemoveFromList", args, reply)
-
-  if reply.Status == storageproto.EKEYNOTFOUND {
-    return lsplog.MakeErr("RemoveList key not found")
-  }
-
-  if reply.Status == storageproto.EITEMNOTFOUND {
-    return lsplog.MakeErr("Remove item not found in list")
-  }
-
-	return nil
-}*/
-func (ls *Libstore) iRemoveFromList(key, removeitem string) error {
+  var cli *rpc.Client
   var args storageproto.PutArgs = storageproto.PutArgs{key, removeitem}
   var reply storageproto.PutReply
-  var cli *rpc.Client
   var err error
 
   cli, err = ls.GetServer(key)
@@ -287,42 +237,17 @@ func (ls *Libstore) iRemoveFromList(key, removeitem string) error {
     return err
   }
 
-  if reply.Status == storageproto.EKEYNOTFOUND {
-    return lsplog.MakeErr("RemoveList key not found")
-  }
-
-  if reply.Status == storageproto.EITEMNOTFOUND {
-    return lsplog.MakeErr("Remove item not found in list")
-  }
-  /*
   if reply.Status != storageproto.OK {
     return MakeErr("RemoveFromList()", reply.Status)
-  }*/
+  }
 
   return nil
 }
-/*
-func (ls *Libstore) iAppendToList(key, newitem string) error {
-  args := &storageproto.PutArgs{key, newitem}
-  reply := &storageproto.PutReply{}
-
-  ls.store_clnt.Call("StorageRPC.AppendToList", args, reply)
-
-  if reply.Status == storageproto.EKEYNOTFOUND {
-    return lsplog.MakeErr("AppendList key not found")
-  }
-
-  if reply.Status == storageproto.EITEMEXISTS {
-    return lsplog.MakeErr("Insert duplicate item to list")
-  }
-
-	return nil
-} */
 
 func (ls *Libstore) iAppendToList(key, newitem string) error {
+  var cli *rpc.Client
   var args storageproto.PutArgs = storageproto.PutArgs{key, newitem}
   var reply storageproto.PutReply
-  var cli *rpc.Client
   var err error
 
   cli, err = ls.GetServer(key)
@@ -334,17 +259,17 @@ func (ls *Libstore) iAppendToList(key, newitem string) error {
   if lsplog.CheckReport(1, err) {
     return err
   }
-  if reply.Status == storageproto.EKEYNOTFOUND {
-    return lsplog.MakeErr("AppendList key not found")
-  }
 
-  if reply.Status == storageproto.EITEMEXISTS {
-    return lsplog.MakeErr("Insert duplicate item to list")
-  }
-  /*
   if reply.Status != storageproto.OK {
     return MakeErr("AppendToList()", reply.Status)
-  }*/
+  }
 
+  return nil
+}
+
+func (ls *Libstore) RevokeLease(
+    args *storageproto.RevokeLeaseArgs,
+    reply *storageproto.RevokeLeaseReply) error {
+  reply.Status = storageproto.OK
   return nil
 }
