@@ -9,10 +9,10 @@ import (
   "sort"
   "strings"
   "time"
+  "P2-f12/contrib/cache"
+  "P2-f12/official/cacherpc"
   "P2-f12/official/lsplog"
   "P2-f12/official/storageproto"
-  "P2-f12/official/cacherpc"
-  "P2-f12/contrib/cache"
 )
 
 type NodeList []storageproto.Node
@@ -160,16 +160,14 @@ func (ls *Libstore) iGet(key string) (string, error) {
   var reply storageproto.GetReply
   var err error
 
-/*
-  if (ls.Flags & ALWAYS_LEASE) != 0 {
-    args.WantLease = true
-  }
-*/
-
   //try cache first
   if tmp, err := ls.localCache.Get(key, &args); err == nil {
     reply.Value = tmp.(string)
     return reply.Value, nil
+  }
+
+  if (ls.Flags & ALWAYS_LEASE) != 0 {
+    args.WantLease = true
   }
 
   cli, err = ls.GetServer(key)
