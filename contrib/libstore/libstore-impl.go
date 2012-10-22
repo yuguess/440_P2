@@ -12,17 +12,21 @@ import (
   "P2-f12/official/lsplog"
   "P2-f12/official/storageproto"
   "P2-f12/official/cacherpc"
+  "P2-f12/contrib/cache"
 )
 
 type NodeList []storageproto.Node
-
+/*
 type KeyInfo struct {
+  //queryTime time.Time
+  
   FirstQuery time.Time
   NumQueries int
   Granted bool
   Duration int
   Data interface{}
-}
+  
+}*/
 
 type Libstore struct {
   Nodes NodeList
@@ -32,7 +36,8 @@ type Libstore struct {
   Addr string
   Flags int
 
-  Leases map [string] KeyInfo
+  localCache *cache.Cache
+  //Leases map [string] KeyInfo
 }
 
 func (list NodeList) Len() int {
@@ -93,6 +98,11 @@ func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
     fmt.Printf("%v\n", store.Nodes[i])
   }
 
+  store.localCache, err = cache.NewCache()
+  if lsplog.CheckReport(1, err) {
+    return nil, err
+  }
+
   return &store, nil
 }
 
@@ -150,8 +160,16 @@ func (ls *Libstore) iGet(key string) (string, error) {
   var reply storageproto.GetReply
   var err error
 
+/*
   if (ls.Flags & ALWAYS_LEASE) != 0 {
     args.WantLease = true
+  }
+*/
+
+  //try cache first
+  if tmp, err := ls.localCache.Get(key, &args); err == nil {
+    reply.Value = tmp.(string)
+    return reply.Value, nil
   }
 
   cli, err = ls.GetServer(key)
@@ -200,10 +218,16 @@ func (ls *Libstore) iGetList(key string) ([]string, error) {
   var reply storageproto.GetListReply
   var err error
 
+  //try cache first
+  if tmp, err := ls.localCache.Get(key, &args); err == nil {
+    reply.Value = tmp.([]string)
+    return reply.Value, nil
+  }
+/*
   if (ls.Flags & ALWAYS_LEASE) != 0 {
     args.WantLease = true
   }
-
+*/
   cli, err = ls.GetServer(key)
   if lsplog.CheckReport(1, err) {
     return nil, err
@@ -267,9 +291,14 @@ func (ls *Libstore) iAppendToList(key, newitem string) error {
   return nil
 }
 
-func (ls *Libstore) RevokeLease(
-    args *storageproto.RevokeLeaseArgs,
-    reply *storageproto.RevokeLeaseReply) error {
+func (ls *Libstore) RevokeLease(args *storageproto.RevokeLeaseArgs,
+                              reply *storageproto.RevokeLeaseReply) error {
+  err := ls.localCache.ClearEntry(args.Key)
+  if err != nil {
+    reply.Status = storageproto.EKEYNOTFOUND
+    return nil
+  }
+
   reply.Status = storageproto.OK
   return nil
 }
