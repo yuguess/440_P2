@@ -3,127 +3,160 @@ package cache
 import (
   "container/list"
   "fmt"
+  "sync"
   "time"
   "P2-f12/official/lsplog"
   "P2-f12/official/storageproto"
 )
 
-const (
-  CACHE_LEN = 100
-  CACHE_THRESH = 5
-)
+type Entry struct {
+  Granted bool
+  LeaseTime time.Time
+  LeaseDur time.Duration
 
-type CacheEntry struct {
-  isValid bool
-  isInCache bool
-  queryTime time.Time
-  queries *list.List
-  queryCount int
-  key string
-  data interface{}
+  Queries *list.List
+  Data interface{}
 }
 
 type Cache struct {
-  entries []CacheEntry
+  Map map[string]*Entry
+  Lock sync.Mutex
 }
 
-func NewCache() (*Cache, error) {
+func NewCache() *Cache {
   var cache Cache
 
-  cache.entries = make([]CacheEntry, CACHE_LEN)
+  cache.Map = make(map[string]*Entry)
 
-  return &cache, nil
+  return &cache
 }
 
 /**
  * Delete entries older than the query threshhold in the list of query times.
  * */
-func (entry *CacheEntry) Clean() {
-  var d time.Duration
-  var e *list.Element
+func (ent *Entry) Clean() {
+  var elem *list.Element
+  var dur time.Duration
 
-  e = entry.queries.Front()
-  for e != nil {
-    d = time.Since(e.Value.(time.Time))
-    if d > storageproto.QUERY_CACHE_SECONDS {
-      _ = entry.queries.Remove(e)
-      e = entry.queries.Front()
+  elem = ent.Queries.Front()
+  for elem != nil {
+    dur = time.Since(elem.Value.(time.Time))
+    if dur > (time.Duration(storageproto.QUERY_CACHE_SECONDS) * time.Second) {
+      _ = ent.Queries.Remove(elem)
+      elem = ent.Queries.Front()
     } else {
       break
     }
   }
 
-  if entry.queries.Len() > storageproto.QUERY_CACHE_THRESH {
+}
+
+func (cache *Cache) Get(
+    key string, args *storageproto.GetArgs) (interface{}, error) {
+  var entry *Entry
+  var valid bool
+  var data interface{}
+
+  fmt.Printf("Cache get: %s\n", key)
+
+  cache.Lock.Lock()
+  cache.ClearExpired()
+
+  entry, valid = cache.Map[key]
+  if !valid {
+    entry = new(Entry)
+    entry.Queries = list.New()
+    entry.Queries.PushBack(time.Now())
+
+    fmt.Printf("Cache entry: %+v\n", *entry)
+    fmt.Printf("Queries: %+v\n", entry.Queries)
+    cache.Map[key] = entry
+
+    cache.Lock.Unlock()
+    return "", lsplog.MakeErr("Not found.")
+  }
+
+  entry.Queries.PushBack(time.Now())
+
+  if entry.Granted {
+    data = entry.Data
+    cache.Lock.Unlock()
+
+    return data, nil
+  }
+
+  fmt.Printf("Cache entry: %v\n", *entry)
+
+  if entry.Queries.Len() > storageproto.QUERY_CACHE_THRESH {
     fmt.Printf("QUERY_CACHE_THRESH reached. Asking for lease.\n")
+    args.WantLease = true
   }
+
+  cache.Lock.Unlock()
+
+  return "", lsplog.MakeErr("Not in cache")
 }
 
-func (entry *CacheEntry) timeDiff() int {
-  return 0
-}
+func (cache *Cache) ClearExpired() {
+  var key string
+  var entry *Entry
+  var dur time.Duration
 
-func (c *Cache) Get(key string, args *storageproto.GetArgs)(interface{}, error){
-  for i := 0; i < len(c.entries); i++ {
-    if c.entries[i].isValid && key == c.entries[i].key {
-      if c.entries[i].isInCache {
-        return c.entries[i].data, nil
+  for key = range cache.Map {
+    entry = cache.Map[key]
+
+    if entry.Granted {
+      dur = time.Since(entry.LeaseTime)
+      if dur > entry.LeaseDur {
+        fmt.Printf("Lease expired: %s\n", key)
+        entry.Granted = false
       }
-
-      c.entries[i].queries.PushBack(time.Now())
-      c.entries[i].Clean()
-
-      if c.entries[i].queries.Len() >= storage.QUERY_CACHE_THRESH {
-        args.WantLease = true
-      }
-
-      if c.entries[i].timeDiff() < CACHE_THRESH {
-        c.entries[i].queryCount++
-      } else {
-        c.entries[i].queryCount = 1
-      }
-
-      if c.entries[i].queryCount == storageproto.QUERY_CACHE_THRESH {
-        args.WantLease = true
-      }
-      return "", lsplog.MakeErr("Not in cache")
     }
-  }
 
-  c.clearExpireEntries()
-  c.insert(key)
+    entry.Clean()
 
-  return "", nil
-}
-
-func (c *Cache) insert(key string) {
-  var entry = CacheEntry{true, false, time.Now(), list.New(), 1, key, nil}
-  entry.queries.PushBack(time.Now())
-
-  for i := 0; i < len(c.entries); i++ {
-    if !c.entries[i].isValid {
-      c.entries[i] = entry
-      return
-    }
-  }
-
-  c.entries = append(c.entries, entry)
-}
-
-func (c *Cache) clearExpireEntries() {
-  for i := 0; i < len(c.entries); i++ {
-    if c.entries[i].isValid && (c.entries[i].timeDiff() >= CACHE_THRESH) {
-      c.entries[i].isValid = false
+    fmt.Printf("No recent queries: %s\n", key)
+    if entry.Queries.Len() == 0 {
+      delete(cache.Map, key)
     }
   }
 }
 
-func (c *Cache) ClearEntry(key string) error {
-  for i := 0; i < len(c.entries); i++ {
-    if c.entries[i].isValid &&c.entries[i].key == key &&c.entries[i].isInCache{
-      c.entries[i].isValid = false
-      return nil
-    }
+func (cache *Cache) ClearEntry(key string) bool {
+  var entry *Entry
+  var valid bool
+
+  cache.Lock.Lock()
+
+  entry, valid = cache.Map[key]
+  if valid {
+    entry.Granted = false
   }
 
-  return lsplog.MakeErr("Key not in cache !")
+  cache.Lock.Unlock()
+
+  return valid
+}
+
+func (cache *Cache) LeaseGranted(
+    key string, data interface{}, lease storageproto.LeaseStruct) {
+  var entry *Entry
+  var valid bool
+
+  cache.Lock.Lock()
+  fmt.Printf("Lease granted: %s (%v)\n", key, data)
+
+  entry, valid = cache.Map[key]
+  if !valid {
+    entry = new(Entry)
+    entry.Queries = list.New()
+
+    cache.Map[key] = entry
+  }
+
+  entry.Granted = true
+  entry.LeaseTime = time.Now()
+  entry.LeaseDur = time.Duration(lease.ValidSeconds) * time.Second
+
+  cache.Lock.Unlock()
 }

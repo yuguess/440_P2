@@ -4,7 +4,7 @@ package libstore
 import (
   "fmt"
   "net"
-  "net/http"
+  //"net/http"
   "net/rpc"
   "sort"
   "strings"
@@ -16,17 +16,6 @@ import (
 )
 
 type NodeList []storageproto.Node
-/*
-type KeyInfo struct {
-  //queryTime time.Time
-  
-  FirstQuery time.Time
-  NumQueries int
-  Granted bool
-  Duration int
-  Data interface{}
-  
-}*/
 
 type Libstore struct {
   Nodes NodeList
@@ -36,8 +25,7 @@ type Libstore struct {
   Addr string
   Flags int
 
-  localCache *cache.Cache
-  //Leases map [string] KeyInfo
+  Leases *cache.Cache
 }
 
 func (list NodeList) Len() int {
@@ -63,14 +51,7 @@ func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
   store.Flags = flags
 
   if store.Addr != "" {
-    store.LeaseConn, err = net.Listen("tcp", store.Addr)
-    if lsplog.CheckReport(1, err) {
-      return nil, err
-    }
-
     rpc.Register(cacherpc.NewCacheRPC(&store))
-    rpc.HandleHTTP()
-    go http.Serve(store.LeaseConn, nil)
   }
 
   master, err = rpc.DialHTTP("tcp", server)
@@ -98,7 +79,7 @@ func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
     fmt.Printf("%v\n", store.Nodes[i])
   }
 
-  store.localCache, err = cache.NewCache()
+  store.Leases = cache.NewCache()
   if lsplog.CheckReport(1, err) {
     return nil, err
   }
@@ -161,7 +142,7 @@ func (ls *Libstore) iGet(key string) (string, error) {
   var err error
 
   //try cache first
-  if tmp, err := ls.localCache.Get(key, &args); err == nil {
+  if tmp, err := ls.Leases.Get(key, &args); err == nil {
     reply.Value = tmp.(string)
     return reply.Value, nil
   }
@@ -178,6 +159,10 @@ func (ls *Libstore) iGet(key string) (string, error) {
   err = cli.Call("StorageRPC.Get", &args, &reply)
   if lsplog.CheckReport(1, err) {
     return "", err
+  }
+
+  if reply.Lease.Granted {
+    ls.Leases.LeaseGranted(key, reply.Value, reply.Lease)
   }
 
   if reply.Status != storageproto.OK {
@@ -217,15 +202,15 @@ func (ls *Libstore) iGetList(key string) ([]string, error) {
   var err error
 
   //try cache first
-  if tmp, err := ls.localCache.Get(key, &args); err == nil {
+  if tmp, err := ls.Leases.Get(key, &args); err == nil {
     reply.Value = tmp.([]string)
     return reply.Value, nil
   }
-/*
+
   if (ls.Flags & ALWAYS_LEASE) != 0 {
     args.WantLease = true
   }
-*/
+
   cli, err = ls.GetServer(key)
   if lsplog.CheckReport(1, err) {
     return nil, err
@@ -234,6 +219,10 @@ func (ls *Libstore) iGetList(key string) ([]string, error) {
   err = cli.Call("StorageRPC.GetList", &args, &reply)
   if lsplog.CheckReport(1, err) {
     return nil, err
+  }
+
+  if reply.Lease.Granted {
+    ls.Leases.LeaseGranted(key, reply.Value, reply.Lease)
   }
 
   if reply.Status != storageproto.OK {
@@ -289,14 +278,19 @@ func (ls *Libstore) iAppendToList(key, newitem string) error {
   return nil
 }
 
-func (ls *Libstore) RevokeLease(args *storageproto.RevokeLeaseArgs,
-                              reply *storageproto.RevokeLeaseReply) error {
-  err := ls.localCache.ClearEntry(args.Key)
-  if err != nil {
+func (ls *Libstore) RevokeLease(
+    args *storageproto.RevokeLeaseArgs,
+    reply *storageproto.RevokeLeaseReply) error {
+  var valid bool
+
+  fmt.Printf("Revoking lease: %s\n", args.Key)
+
+  valid = ls.Leases.ClearEntry(args.Key)
+  if !valid {
     reply.Status = storageproto.EKEYNOTFOUND
-    return nil
+  } else {
+    reply.Status = storageproto.OK
   }
 
-  reply.Status = storageproto.OK
   return nil
 }
