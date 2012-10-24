@@ -1,3 +1,8 @@
+/** @file cache.go
+ *  @brief implement cache relate functions 
+ *  @author Andrin(atrejo) Dalong CHENG (dalongc)
+ *  @date 2012-10-23
+ */
 package cache
 
 import (
@@ -9,6 +14,9 @@ import (
   "P2-f12/official/storageproto"
 )
 
+/** 
+ *  @brief cache entry 
+ */
 type Entry struct {
   Granted bool
   LeaseTime time.Time
@@ -18,11 +26,18 @@ type Entry struct {
   Data interface{}
 }
 
+/** 
+ *  @brief cache 
+ */
 type Cache struct {
   Map map[string]*Entry
   Lock sync.Mutex
 }
 
+/**@brief create a cache 
+ * @param void 
+ * @return *Cache 
+ */
 func NewCache() *Cache {
   var cache Cache
 
@@ -31,26 +46,14 @@ func NewCache() *Cache {
   return &cache
 }
 
-/**
- * Delete entries older than the query threshhold in the list of query times.
- * */
-func (ent *Entry) Clean() {
-  var elem *list.Element
-  var dur time.Duration
-
-  elem = ent.Queries.Front()
-  for elem != nil {
-    dur = time.Since(elem.Value.(time.Time))
-    if dur > (time.Duration(storageproto.QUERY_CACHE_SECONDS) * time.Second) {
-      _ = ent.Queries.Remove(elem)
-      elem = ent.Queries.Front()
-    } else {
-      break
-    }
-  }
-
-}
-
+/**@brief Get is the most important function for cache, it will first clear all 
+ *        the expire entries, and then fetch the cache content or add the count 
+ *        of wantlease flag
+ * @param key 
+ * @param GetArgs
+ * @return interface{}(string or []string)
+ * @return error 
+ */
 func (cache *Cache) Get(
     key string, args *storageproto.GetArgs) (interface{}, error) {
   var entry *Entry
@@ -76,14 +79,14 @@ func (cache *Cache) Get(
     return "", lsplog.MakeErr("Not found.")
   }
 
-  entry.Queries.PushBack(time.Now())
-
   if entry.Granted {
     data = entry.Data
     cache.Lock.Unlock()
 
     return data, nil
   }
+
+  entry.Queries.PushBack(time.Now())
 
   fmt.Printf("Cache entry: %v\n", *entry)
 
@@ -97,6 +100,32 @@ func (cache *Cache) Get(
   return "", lsplog.MakeErr("Not in cache")
 }
 
+/**@brief delete entries older than the query threshhold 
+ *         in the list of query times. 
+ * @param void 
+ * @return void 
+ */
+func (ent *Entry) Clean() {
+  var elem *list.Element
+  var dur time.Duration
+
+  elem = ent.Queries.Front()
+  for elem != nil {
+    dur = time.Since(elem.Value.(time.Time))
+    if dur > (time.Duration(storageproto.QUERY_CACHE_SECONDS) * time.Second) {
+      _ = ent.Queries.Remove(elem)
+      elem = ent.Queries.Front()
+    } else {
+      break
+    }
+  }
+
+}
+
+/**@brief delete expire entries 
+ * @param void 
+ * @return void 
+ */
 func (cache *Cache) ClearExpired() {
   var key string
   var entry *Entry
@@ -122,6 +151,10 @@ func (cache *Cache) ClearExpired() {
   }
 }
 
+/**@brief invalidate certain entry 
+ * @param string  
+ * @return bool 
+ */
 func (cache *Cache) ClearEntry(key string) bool {
   var entry *Entry
   var valid bool
@@ -138,6 +171,13 @@ func (cache *Cache) ClearEntry(key string) bool {
   return valid
 }
 
+/**@brief store the 'hot' content into cache, this function will be   
+ *        used by revoke in libstore 
+ * @param string 
+ * @param interface{} 
+ * @param LeaseStuct
+ * @return void 
+ */
 func (cache *Cache) LeaseGranted(
     key string, data interface{}, lease storageproto.LeaseStruct) {
   var entry *Entry

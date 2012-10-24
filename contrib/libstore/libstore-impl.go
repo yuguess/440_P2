@@ -1,10 +1,14 @@
-// Your implementation of the libstore should go here.
+/** @file libstore-impl.go
+ *  @brief implementation of libstore 
+ *  @author Andrin(atrejo) Dalong CHENG(dalongc)
+ *  @date 2012-10-23
+ */
+
 package libstore
 
 import (
   "fmt"
   "net"
-  //"net/http"
   "net/rpc"
   "sort"
   "strings"
@@ -28,18 +32,48 @@ type Libstore struct {
   Leases *cache.Cache
 }
 
+var StatusName = map[int]string {
+  storageproto.OK:            "OK",
+  storageproto.EKEYNOTFOUND:  "KEYNOTFOUND",
+  storageproto.EITEMNOTFOUND: "ITEMNOTFOUND",
+  storageproto.EWRONGSERVER:  "WRONGSERVER",
+  storageproto.EPUTFAILED:    "PUTFAILED",
+  storageproto.EITEMEXISTS:   "ITEMEXISTS",
+}
+
+/**@brief helper function for sorting  
+ * @param void 
+ * @return int 
+ */
 func (list NodeList) Len() int {
   return len(list)
 }
 
+/**@brief helper function for sorting  
+ * @param i 
+ * @param j
+ * @return void 
+ */
 func (list NodeList) Swap(i, j int) {
   list[j], list[i] = list[i], list[j]
 }
 
+/**@brief helper function for sorting  
+ * @param i 
+ * @param j
+ * @return bool 
+ */
 func (list NodeList) Less(i, j int) bool {
   return list[i].NodeID < list[j].NodeID
 }
 
+/**@brief helper function for sorting  
+ * @param server master server addr 
+ * @param myhostport trib server's port  
+ * @param flags 
+ * @return *Libstore 
+ * @return error
+ */
 func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
   var store Libstore
   var master *rpc.Client
@@ -87,15 +121,11 @@ func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
   return &store, nil
 }
 
-var StatusName = map[int]string {
-  storageproto.OK:            "OK",
-  storageproto.EKEYNOTFOUND:  "KEYNOTFOUND",
-  storageproto.EITEMNOTFOUND: "ITEMNOTFOUND",
-  storageproto.EWRONGSERVER:  "WRONGSERVER",
-  storageproto.EPUTFAILED:    "PUTFAILED",
-  storageproto.EITEMEXISTS:   "ITEMEXISTS",
-}
-
+/**@brief helper function for sorting  
+ * @param function 
+ * @param status  
+ * @return error
+ */
 func MakeErr(function string, status int) lsplog.LspErr {
   var str string
   str = fmt.Sprintf("%s failed: %s (%d)", function, StatusName[status], status)
@@ -103,11 +133,15 @@ func MakeErr(function string, status int) lsplog.LspErr {
   return lsplog.MakeErr(str)
 }
 
-/**
- * Hashes a key and returns an RPC connection to the server responsible for
- * storing it. If an RPC connection is not established, create one and store it
- * for future accesses.
- * */
+/**@brief Hashes a key and returns an RPC connection to the server 
+          responsible for storing it. If an RPC connection is not 
+          established, create one and store it for future accesses.  
+ * @param server master server addr 
+ * @param myhostport trib server's port  
+ * @param flags 
+ * @return *Libstore 
+ * @return error
+ */
 func (ls *Libstore) GetServer(key string) (*rpc.Client, error) {
   var id uint32
   var svr int
@@ -134,7 +168,11 @@ func (ls *Libstore) GetServer(key string) (*rpc.Client, error) {
   return ls.RPCConn[svr], nil
 }
 
-// TODO: return storageproto error to tribserver
+/**@brief Get value given a key for storage server  
+ * @param key 
+ * @return value 
+ * @return error
+ */
 func (ls *Libstore) iGet(key string) (string, error) {
   var cli *rpc.Client
   var args storageproto.GetArgs = storageproto.GetArgs{key, false, ls.Addr}
@@ -172,6 +210,11 @@ func (ls *Libstore) iGet(key string) (string, error) {
   return reply.Value, nil
 }
 
+/**@brief store key-value into backend 
+ * @param key string 
+ * @param value string 
+ * @return error
+ */
 func (ls *Libstore) iPut(key, value string) error {
   var cli *rpc.Client
   var args storageproto.PutArgs = storageproto.PutArgs{key, value}
@@ -195,6 +238,11 @@ func (ls *Libstore) iPut(key, value string) error {
   return nil
 }
 
+/**@brief given a key, get list of strings  
+ * @param key 
+ * @return string[] 
+ * @return error
+ */
 func (ls *Libstore) iGetList(key string) ([]string, error) {
   var cli *rpc.Client
   var args storageproto.GetArgs = storageproto.GetArgs{key, false, ls.Addr}
@@ -232,6 +280,11 @@ func (ls *Libstore) iGetList(key string) ([]string, error) {
   return reply.Value, nil
 }
 
+/**@brief remove a item from backend storage   
+ * @param key 
+ * @param removeitem 
+ * @return error
+ */
 func (ls *Libstore) iRemoveFromList(key, removeitem string) error {
   var cli *rpc.Client
   var args storageproto.PutArgs = storageproto.PutArgs{key, removeitem}
@@ -255,6 +308,11 @@ func (ls *Libstore) iRemoveFromList(key, removeitem string) error {
   return nil
 }
 
+/**@brief append newitem to list  
+ * @param key 
+ * @param newitem 
+ * @return error
+ */
 func (ls *Libstore) iAppendToList(key, newitem string) error {
   var cli *rpc.Client
   var args storageproto.PutArgs = storageproto.PutArgs{key, newitem}
@@ -278,6 +336,12 @@ func (ls *Libstore) iAppendToList(key, newitem string) error {
   return nil
 }
 
+/**@brief revoke function called by storage server to invalidate  
+ *        libstore cache entry
+ * @param RevokeLeaseArgs
+ * @param RevokeLeaseReply
+ * @return error
+ */
 func (ls *Libstore) RevokeLease(
     args *storageproto.RevokeLeaseArgs,
     reply *storageproto.RevokeLeaseReply) error {

@@ -1,3 +1,8 @@
+/** @file trib-impl.go
+ *  @brief implementation of trib server 
+ *  @author Andrin(atrejo) Dalong CHENG(dalongc)
+ *  @date 2012-10-23
+ */
 package tribimpl
 
 import (
@@ -15,6 +20,11 @@ type Tribserver struct {
   Id int
 }
 
+/**@brief create a new tribserver   
+ * @param string 
+ * @param string 
+ * @return *tribserver 
+ */
 func NewTribserver(storagemaster, myhostport string) *Tribserver {
   lsplog.SetVerbose(3)
   lsplog.Vlogf(3, "st_master:%s, port:%s", storagemaster, myhostport)
@@ -35,6 +45,11 @@ func NewTribserver(storagemaster, myhostport string) *Tribserver {
   return svr
 }
 
+/**@brief create a new user 
+ * @param CreateUserArgs
+ * @param CreateUserReply
+ * @return error 
+ */
 func (ts *Tribserver) CreateUser(
     args *tribproto.CreateUserArgs, reply *tribproto.CreateUserReply) error {
 
@@ -67,6 +82,11 @@ func (ts *Tribserver) CreateUser(
   return nil
 }
 
+/**@brief add subscription to certain user 
+ * @param SubscriptionArgs
+ * @param SubscriptionReply
+ * @return error 
+ */
 func (ts *Tribserver) AddSubscription(
     args *tribproto.SubscriptionArgs,
     reply *tribproto.SubscriptionReply) error {
@@ -85,6 +105,11 @@ func (ts *Tribserver) AddSubscription(
 	return nil
 }
 
+/**@brief remove subscription to given user 
+ * @param SubscriptionArgs
+ * @param SubscriptionReply
+ * @return error 
+ */
 func (ts *Tribserver) RemoveSubscription(
     args *tribproto.SubscriptionArgs,
     reply *tribproto.SubscriptionReply) error {
@@ -103,6 +128,11 @@ func (ts *Tribserver) RemoveSubscription(
 	return nil
 }
 
+/**@brief get tribbles from subscriped users 
+ * @param GetSubscriptionsArgs
+ * @param GetSubscriptionsReply
+ * @return error 
+ */
 func (ts *Tribserver) GetSubscriptions(
     args *tribproto.GetSubscriptionsArgs,
     reply *tribproto.GetSubscriptionsReply) error {
@@ -125,6 +155,11 @@ func (ts *Tribserver) GetSubscriptions(
 	return nil
 }
 
+/**@brief Post Tribbles
+ * @param PostTribbleArgs
+ * @param PostTribbleReply
+ * @return error 
+ */
 func (ts *Tribserver) PostTribble(
     args *tribproto.PostTribbleArgs, reply *tribproto.PostTribbleReply) error {
   var trib_key string
@@ -167,6 +202,11 @@ func (ts *Tribserver) PostTribble(
 	return nil
 }
 
+/**@brief get posted tribbles 
+ * @param GetTribblesArgs
+ * @param GetTribblesReply
+ * @return error 
+ */
 func (ts *Tribserver) GetTribbles(
     args *tribproto.GetTribblesArgs, reply *tribproto.GetTribblesReply) error {
   var trib_key string
@@ -199,8 +239,12 @@ func (ts *Tribserver) GetTribbles(
 	return nil
 }
 
-// collect all tribbles from all users followed
-// TODO: trim the list by sorting and taking only the most recent 100 tribbles
+//TODO: trim the list by sorting and taking only the most recent 100 tribbles
+/**@brief collect all tribbles from all users followed
+ * @param CreateUserArgs
+ * @param CreateUserReply
+ * @return error 
+ */
 func (ts *Tribserver) GetTribblesBySubscription(
     args *tribproto.GetTribblesArgs, reply *tribproto.GetTribblesReply) error {
   var fllw_key string
