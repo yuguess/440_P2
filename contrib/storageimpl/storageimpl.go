@@ -17,6 +17,7 @@ import (
   "P2-f12/official/storageproto"
   "P2-f12/official/lsplog"
   "encoding/json"
+  "sync"
   //"P2-f12/official/tribproto"
   //"math"
   //"math/big"
@@ -32,6 +33,7 @@ type Storageserver struct {
   isMaster bool
   nodes map[storageproto.Node] bool
   numnodes int
+  rwlock sync.RWMutex
 }
 
 func reallySeedTheDamnRNG() {
@@ -140,10 +142,12 @@ func (ss *Storageserver) GetServers(args *storageproto.GetServersArgs,
 // These should do something! :-)
 func (ss *Storageserver) Get(args *storageproto.GetArgs,
                               reply *storageproto.GetReply) error {
+  ss.rwlock.RLock()
 
   val, present := ss.hash[args.Key]
   if !present {
     reply.Status = storageproto.EKEYNOTFOUND
+    ss.rwlock.RUnlock()
     return nil
   }
 
@@ -155,6 +159,7 @@ func (ss *Storageserver) Get(args *storageproto.GetArgs,
   lsplog.Vlogf(3, "Storage Get key %s, val %s", args.Key, reply.Value)
   reply.Status = storageproto.OK
 
+  ss.rwlock.RUnlock()
 	return nil
 }
 
@@ -163,10 +168,13 @@ func (ss *Storageserver) GetList(args *storageproto.GetArgs,
 
   lsplog.Vlogf(3, "storage try to getlist with key %s", args.Key)
 
+  ss.rwlock.RLock()
+
   val, present := ss.hash[args.Key]
   if !present {
       reply.Status = storageproto.EKEYNOTFOUND
       reply.Value = nil
+      ss.rwlock.RUnlock()
       return nil
   }
 
@@ -178,15 +186,21 @@ func (ss *Storageserver) GetList(args *storageproto.GetArgs,
   }
 
   reply.Status = storageproto.OK
+
+  ss.rwlock.RUnlock()
   return nil
 }
 
 func (ss *Storageserver) Put(args *storageproto.PutArgs,
                                         reply *storageproto.PutReply) error {
   var err error
+
+  ss.rwlock.Lock()
+
   _, present := ss.hash[args.Key]
   if present {
     reply.Status = storageproto.EITEMEXISTS
+    ss.rwlock.Unlock()
     return nil
   }
 
@@ -203,15 +217,21 @@ func (ss *Storageserver) Put(args *storageproto.PutArgs,
   }
 
   reply.Status = storageproto.OK
+
+  ss.rwlock.Unlock()
+
   return nil
 }
 
 func (ss *Storageserver) AppendToList(args *storageproto.PutArgs,
                                         reply *storageproto.PutReply) error {
+  ss.rwlock.Lock()
+
   val, present := ss.hash[args.Key]
   if !present {
     lsplog.Vlogf(3, "try to append to %s list %s not exist", args.Key, args.Value)
     reply.Status = storageproto.EKEYNOTFOUND
+    ss.rwlock.Unlock()
     return nil
   }
 
@@ -227,6 +247,7 @@ func (ss *Storageserver) AppendToList(args *storageproto.PutArgs,
   for _, v := range list {
     if v == args.Value {
       reply.Status = storageproto.EITEMEXISTS
+      ss.rwlock.Unlock()
       return nil
     }
   }
@@ -240,6 +261,8 @@ func (ss *Storageserver) AppendToList(args *storageproto.PutArgs,
 
   reply.Status = storageproto.OK
 
+  ss.rwlock.Unlock()
+
 	return nil
 }
 
@@ -247,10 +270,13 @@ func (ss *Storageserver) RemoveFromList(args *storageproto.PutArgs,
                                         reply *storageproto.PutReply) error {
   lsplog.Vlogf(0, "removeFromList key %s", args.Key)
 
+  ss.rwlock.Lock()
+
   val, present := ss.hash[args.Key]
   if !present {
       lsplog.Vlogf(3, "try to remove, key %s does not exist", args.Key)
       reply.Status = storageproto.EKEYNOTFOUND
+      ss.rwlock.Unlock()
       return nil
   }
 
@@ -270,11 +296,14 @@ func (ss *Storageserver) RemoveFromList(args *storageproto.PutArgs,
       }
 
       reply.Status = storageproto.OK
+      ss.rwlock.Unlock()
       return nil
     }
   }
 
   reply.Status = storageproto.EITEMNOTFOUND
+
+  ss.rwlock.Unlock()
 	return nil
 }
 
