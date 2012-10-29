@@ -12,6 +12,8 @@ package storageimpl
 import (
   //"bytes"
   "fmt"
+  "net/rpc"
+  "time"
   "P2-f12/official/storageproto"
   "P2-f12/official/lsplog"
   "encoding/json"
@@ -21,10 +23,15 @@ import (
   //"math/rand"
 )
 
+const DEFAULT_MASTER_PORT = 9009
+
 type Storageserver struct {
   hash map[string] []byte
   portnum int
   nodeid uint32
+  isMaster bool
+  nodes map[storageproto.Node] bool
+  numnodes int
 }
 
 func reallySeedTheDamnRNG() {
@@ -34,34 +41,103 @@ func reallySeedTheDamnRNG() {
 
 func NewStorageserver(master string, numnodes int, portnum int,
                                         nodeid uint32) *Storageserver {
+
   lsplog.SetVerbose(3)
   lsplog.Vlogf(3, "Create New Storage Server")
   lsplog.Vlogf(3, "master:%s, numnodes:%d, portnum:%d, nodeid:%d",
                                       master, numnodes, portnum, nodeid)
+  var masterNode *rpc.Client
+  var regArgs storageproto.RegisterArgs
+  var regReply storageproto.RegisterReply
+  var storage Storageserver
+  var err error
+  var nodes = make(map[storageproto.Node] bool)
 
-  hash := make(map[string] []byte)
-	return &Storageserver{hash, portnum, nodeid}
+  storage.nodeid = nodeid
+
+  if master == "" {
+    //for master node
+    storage.isMaster = true
+    storage.portnum = DEFAULT_MASTER_PORT
+    storage.nodes = nodes
+    storage.numnodes = numnodes
+
+    //add masternode itself to nodes table
+    hostport := fmt.Sprintf("localho:%d", DEFAULT_MASTER_PORT)
+    self := storageproto.Node{hostport, nodeid}
+    storage.nodes[self] = true
+  } else {
+    //for slave node
+    storage.isMaster = false
+    storage.portnum = portnum
+
+    masterNode, err = rpc.DialHTTP("tcp", master)
+    if lsplog.CheckReport(1, err) {
+      return nil
+    }
+
+    for i := 0; (regReply.Ready == false) && (i < 5); i++ {
+      time.Sleep(1000 * time.Millisecond)
+      masterNode.Call("StorageRPC.Register", &regArgs, &regReply)
+    }
+  }
+
+  storage.hash = make(map[string] []byte)
+
+	return &storage
 }
 
 // Non-master servers to the master
 func (ss *Storageserver) RegisterServer(args *storageproto.RegisterArgs,
                                     reply *storageproto.RegisterReply) error {
+
+  if !ss.isMaster {
+    lsplog.Vlogf(0, "WARNING:Calling a non-master node to register")
+    return lsplog.MakeErr("Calling a non-master node to register")
+  }
+
+  _, present := ss.nodes[args.ServerInfo]
+  if !present {
+    //add to nodes
+    ss.nodes[args.ServerInfo] = true
+  }
+
+  if len(ss.nodes) == ss.numnodes {
+    reply.Ready = true
+  } else {
+    reply.Ready = false
+  }
+  reply.Servers = nil
+
 	return nil
 }
 
 //dummy version
 func (ss *Storageserver) GetServers(args *storageproto.GetServersArgs,
                                     reply *storageproto.RegisterReply) error {
+  if !ss.isMaster {
+    lsplog.Vlogf(0, "WARNING:Calling a non-master node for GetServers")
+    return lsplog.MakeErr("Calling a non-master node to GetServers")
+  }
+
+  if len(ss.nodes) != ss.numnodes {
+    reply.Ready = false
+    reply.Servers = nil
+    return nil
+  }
+
   reply.Ready = true
-  hostport := fmt.Sprintf("localhost:%d", ss.portnum)
-  node := storageproto.Node{hostport, ss.nodeid}
-  reply.Servers = []storageproto.Node{node}
+  servers := make([]storageproto.Node, ss.numnodes)
+  i := 0
+  for node, _ := range ss.nodes {
+    servers[i] = node
+    i++
+  }
 	return nil
 }
 
 // RPC-able interfaces, bridged via StorageRPC.
 // These should do something! :-)
-
 func (ss *Storageserver) Get(args *storageproto.GetArgs,
                               reply *storageproto.GetReply) error {
 
