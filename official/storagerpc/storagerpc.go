@@ -51,7 +51,7 @@ func (srpc *StorageRPC) RemoveFromList(args *storageproto.PutArgs, reply *storag
 	return srpc.ss.RemoveFromList(args, reply)
 }
 
-func (srpc *StorageRPC) Register(args *storageproto.RegisterArgs, reply *storageproto.RegisterReply) error {
+func (srpc *StorageRPC) RegisterServer(args *storageproto.RegisterArgs, reply *storageproto.RegisterReply) error {
 	return srpc.ss.RegisterServer(args, reply)
 }
 

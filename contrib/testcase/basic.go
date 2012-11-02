@@ -45,7 +45,6 @@ func main() {
 //    return
 //  }
 
-
   //test post msg
   status, err = client.PostTribble("1", "test1")
   fmt.Printf("status:%d\n", status)

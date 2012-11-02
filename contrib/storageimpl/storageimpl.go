@@ -65,8 +65,6 @@ func NewStorageserver(master string, numnodes int, portnum int,
   storage.nodeid = nodeid
   storage.leasePool = make(map[string] []leaseEntry)
 
-  lsplog.Vlogf(3, "master %s", master)
-
   if master == "" || numnodes == 1{
     //for master node
     storage.isMaster = true
@@ -79,9 +77,14 @@ func NewStorageserver(master string, numnodes int, portnum int,
     self := storageproto.Node{hostport, nodeid}
     storage.nodes[self] = true
   } else {
+    regArgs.ServerInfo.HostPort = fmt.Sprintf("%d", portnum)
+    regArgs.ServerInfo.NodeID = nodeid
+
     //for slave node
     storage.isMaster = false
     storage.portnum = portnum
+
+    lsplog.Vlogf(3, "for slave node")
 
     masterNode, err = rpc.DialHTTP("tcp", master)
     if lsplog.CheckReport(1, err) {
@@ -90,7 +93,12 @@ func NewStorageserver(master string, numnodes int, portnum int,
 
     for i := 0; (regReply.Ready == false) && (i < 5); i++ {
       time.Sleep(1000 * time.Millisecond)
-      masterNode.Call("StorageRPC.Register", &regArgs, &regReply)
+
+      err := masterNode.Call("StorageRPC.RegisterServer", &regArgs, &regReply)
+      if lsplog.CheckReport(1, err) {
+        lsplog.Vlogf(3, "slave %d call RegisterServer %d time failed",
+                                                    i + 1, portnum)
+      }
     }
   }
 
@@ -102,6 +110,7 @@ func NewStorageserver(master string, numnodes int, portnum int,
 // Non-master servers to the master
 func (ss *Storageserver) RegisterServer(args *storageproto.RegisterArgs,
                                     reply *storageproto.RegisterReply) error {
+  lsplog.Vlogf(0, "master registerServer invoked")
 
   if !ss.isMaster {
     lsplog.Vlogf(0, "WARNING:Calling a non-master node to register")
