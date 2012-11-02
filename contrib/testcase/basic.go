@@ -6,7 +6,6 @@ import (
 	//"flag"
 	"P2-f12/official/tribproto"
   "P2-f12/official/lsplog"
-	"P2-f12/official/tribclient"
 	//"strings"
 	//"time"
 )
@@ -26,7 +25,8 @@ func main() {
 
   serverAddress := "localhost"
 	serverPort := fmt.Sprintf("%d", 9010)
-  client, _ := tribclient.NewTribbleclient(serverAddress, serverPort)
+  client, _ := NewTribbleclient(serverAddress, serverPort)
+  //client, _ := tribclient.NewTribbleclient(serverAddress, serverPort)
 
   //create user
   status, err := client.CreateUser("1")
