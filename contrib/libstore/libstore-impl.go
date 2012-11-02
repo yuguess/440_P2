@@ -88,16 +88,27 @@ func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
     rpc.Register(cacherpc.NewCacheRPC(&store))
   }
 
+  lsplog.Vlogf(3, "libstore try to connect to master storage %s", server)
+
   master, err = rpc.DialHTTP("tcp", server)
   if lsplog.CheckReport(1, err) {
     return nil, err
   }
 
+  lsplog.Vlogf(3, "try to call GetServers")
+
   master.Call("StorageRPC.GetServers", &args, &reply)
 
-  for i := 0; (reply.Ready == false) && (i < 5); i++ {
-    time.Sleep(1000 * time.Millisecond)
-    master.Call("StorageRPC.GetServers", &args, &reply)
+  if !reply.Ready {
+    for i := 0; (i < 5); i++ {
+      time.Sleep(1000 * time.Millisecond)
+      master.Call("StorageRPC.GetServers", &args, &reply)
+    }
+  }
+
+  err = master.Close()
+  if lsplog.CheckReport(1, err) {
+    lsplog.Vlogf(3, "WARNING close master failed")
   }
 
   // couldn't get list of servers from master
@@ -117,6 +128,8 @@ func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
   if lsplog.CheckReport(1, err) {
     return nil, err
   }
+
+  lsplog.Vlogf(3, "libstore create complete")
 
   return &store, nil
 }
@@ -146,6 +159,8 @@ func (ls *Libstore) GetServer(key string) (*rpc.Client, error) {
   var id uint32
   var svr int
   var err error
+
+  lsplog.Vlogf(3, "libstore-impl GetServer Invoked")
 
   id = Storehash(strings.Split(key, ":")[0])
 
@@ -221,10 +236,14 @@ func (ls *Libstore) iPut(key, value string) error {
   var reply storageproto.PutReply
   var err error
 
+  lsplog.Vlogf(0, "libstore iput invoked!")
+
   cli, err = ls.GetServer(key)
   if lsplog.CheckReport(1, err) {
     return err
   }
+
+  lsplog.Vlogf(0, "libstore getserver complete!")
 
   err = cli.Call("StorageRPC.Put", &args, &reply)
   if lsplog.CheckReport(1, err) {

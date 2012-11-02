@@ -32,6 +32,7 @@ func NewTribserver(storagemaster, myhostport string) *Tribserver {
   var svr *Tribserver = new(Tribserver)
   var err error
 
+  lsplog.Vlogf(3, "try to create libstore")
   // libstore.NONE forces no leases on Get and GetList requests
   svr.Store, err =
       libstore.NewLibstore(storagemaster, myhostport, libstore.NONE)
@@ -61,12 +62,14 @@ func (ts *Tribserver) CreateUser(
 
   _, err = ts.Store.GetList(trib_key)
   if err == nil {
+    lsplog.Vlogf(0, "try create user %s , but exist !", args.Userid)
     reply.Status = tribproto.EEXISTS
     return nil
   }
 
   err = ts.Store.Put(trib_key, "")
   if lsplog.CheckReport(2, err) {
+    lsplog.Vlogf(0, "user %s , trib_key exist !", args.Userid)
     reply.Status = tribproto.EEXISTS
     return nil
   }
@@ -78,6 +81,8 @@ func (ts *Tribserver) CreateUser(
   }
 
   reply.Status = tribproto.OK
+
+  lsplog.Vlogf(0, "create user status %d", tribproto.OK)
 
   return nil
 }

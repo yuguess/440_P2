@@ -1,6 +1,7 @@
 package main 
 
 import (
+  "fmt"
 	"log"
 	"net"
 	"net/rpc"
@@ -18,11 +19,14 @@ type Tribbleclient struct {
 	client        *rpc.Client
 }
 
-func NewTribbleclient(serverAddress string, serverPort string) (*Tribbleclient, error) {
+func NewTribbleclient(serverAddress string,
+                              serverPort string) (*Tribbleclient, error) {
+  fmt.Printf("try to connect to %s:%s\n", serverAddress, serverPort)
 	client, err := rpc.DialHTTP("tcp", net.JoinHostPort(serverAddress, serverPort))
 	if err != nil {
 		log.Fatal("Could not connect to server:", err)
 	}
+  fmt.Printf("OK!!\n")
 	return &Tribbleclient{serverAddress, serverPort, client}, nil
 }
 

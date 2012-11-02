@@ -23,10 +23,9 @@ func PrintTribble(t tribproto.Tribble) {
 
 func main() {
 
-  serverAddress := "localhost"
+  serverAddress := "127.0.0.1"
 	serverPort := fmt.Sprintf("%d", 9010)
   client, _ := NewTribbleclient(serverAddress, serverPort)
-  //client, _ := tribclient.NewTribbleclient(serverAddress, serverPort)
 
   //create user
   status, err := client.CreateUser("1")
@@ -35,18 +34,17 @@ func main() {
     return
   }
 
-/*
-  //test duplicate create user !
-  status, err = client.CreateUser("1")
-  fmt.Printf("status:%d\n", status)
+//  //test duplicate create user !
+//  status, err = client.CreateUser("1")
+//  fmt.Printf("status:%d\n", status)
+//
+//  //test nonexist user post message
+//  status, err = client.PostTribble("2", "test1")
+//  fmt.Printf("status:%d\n", status)
+//  if lsplog.CheckReport(0, err) {
+//    return
+//  }
 
-  //test nonexist user post message
-  status, err = client.PostTribble("2", "test1")
-  fmt.Printf("status:%d\n", status)
-  if lsplog.CheckReport(0, err) {
-    return
-  }
-*/
 
   //test post msg
   status, err = client.PostTribble("1", "test1")
@@ -73,12 +71,12 @@ func main() {
   //test user1 addsubscription user2
   status, err = client.AddSubscription("1", "2")
   fmt.Printf("status:%d\n", status)
-/*
-  //test user1 getsubscription 
-  users, status, err := client.GetSubscriptions("1")
-  fmt.Printf("status:%d\n", status)
-  fmt.Println(strings.Join(users, ","))
-*/
+
+//  //test user1 getsubscription 
+//  users, status, err := client.GetSubscriptions("1")
+//  fmt.Printf("status:%d\n", status)
+//  fmt.Println(strings.Join(users, ","))
+
 
   //test GetTribblesBySubscription
   tribbles, status, err = client.GetTribblesBySubscription("1")

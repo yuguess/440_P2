@@ -25,7 +25,7 @@ func main() {
 	flag.Parse()
 	if *storageMasterNodePort == "" {
 		if *portnum == 0 {
-			*portnum = 9999
+			*portnum = 9009
 		}
 		// Single node execution
 		*storageMasterNodePort = fmt.Sprintf("localhost:%d", *portnum)
@@ -34,6 +34,7 @@ func main() {
 			log.Println("Self-mastering, setting nodes to 1")
 		}
 	}
+
 	l, e := net.Listen("tcp", fmt.Sprintf(":%d", *portnum))
 	if e != nil {
 		log.Fatal("listen error:", e)
@@ -42,7 +43,6 @@ func main() {
 	log.Println("Server starting on ", listenport)
 	*portnum, _ = strconv.Atoi(listenport)
 	ss := storageimpl.NewStorageserver(*storageMasterNodePort, *numNodes, *portnum, uint32(*nodeID))
-
 	srpc := storagerpc.NewStorageRPC(ss)
 	rpc.Register(srpc)
 	rpc.HandleHTTP()
