@@ -20,7 +20,6 @@ type StorageInterface interface {
 	Put(*storageproto.PutArgs, *storageproto.PutReply) error
 	AppendToList(*storageproto.PutArgs, *storageproto.PutReply) error
 	RemoveFromList(*storageproto.PutArgs, *storageproto.PutReply) error
-	RevokeLease(*storageproto.RevokeLeaseArgs, *storageproto.RevokeLeaseReply) error
 }
 
 type StorageRPC struct {
@@ -57,8 +56,4 @@ func (srpc *StorageRPC) Register(args *storageproto.RegisterArgs, reply *storage
 
 func (srpc *StorageRPC) GetServers(args *storageproto.GetServersArgs, reply *storageproto.RegisterReply) error {
 	return srpc.ss.GetServers(args, reply)
-}
-
-func (srpc *StorageRPC) RevokeLease(args *storageproto.RevokeLeaseArgs, reply *storageproto.RevokeLeaseReply) error {
-	return srpc.ss.RevokeLease(args, reply)
 }
