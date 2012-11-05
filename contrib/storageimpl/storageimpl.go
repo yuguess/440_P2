@@ -73,21 +73,22 @@ func NewStorageserver(master string, numnodes int, portnum int,
 
   selfAddr := fmt.Sprintf("localhost:%d",portnum)
 
-  if master == selfAddr || numnodes == 1 {
+  if master == selfAddr {
     fmt.Printf("for master node\n")
 
     //for master node
     storage.isMaster = true
-    storage.portnum = DEFAULT_MASTER_PORT
+    storage.portnum = portnum
+    //storage.portnum = DEFAULT_MASTER_PORT
     storage.nodes = nodes
     storage.numnodes = numnodes
 
     //add masternode itself to nodes table
-    hostport := fmt.Sprintf("localhost:%d", DEFAULT_MASTER_PORT)
-    self := storageproto.Node{hostport, nodeid}
+    //hostport := fmt.Sprintf("localhost:%d", DEFAULT_MASTER_PORT)
+    self := storageproto.Node{master, nodeid}
     storage.nodes[self] = true
   } else {
-    regArgs.ServerInfo.HostPort = fmt.Sprintf("%d", portnum)
+    regArgs.ServerInfo.HostPort = fmt.Sprintf("localhost:%d", portnum)
     regArgs.ServerInfo.NodeID = nodeid
 
     //for slave node
@@ -131,7 +132,7 @@ func (ss *Storageserver) RegisterServer(args *storageproto.RegisterArgs,
   if !present {
     //add to nodes
     ss.nodes[args.ServerInfo] = true
-    fmt.Println("add nodes ", args.ServerInfo)
+    fmt.Println("add nodes %v", args.ServerInfo)
   }
 
   fmt.Printf("master collect slave info %d/%d\n", len(ss.nodes), ss.numnodes)
@@ -150,7 +151,7 @@ func (ss *Storageserver) RegisterServer(args *storageproto.RegisterArgs,
 func (ss *Storageserver) GetServers(args *storageproto.GetServersArgs,
                                     reply *storageproto.RegisterReply) error {
 
-  fmt.Println("Storage GetServer invoked")
+  fmt.Println("Storage GetServers invoked")
 
   if !ss.isMaster {
     fmt.Println("WARNING:Calling a non-master node for GetServers")
@@ -160,20 +161,20 @@ func (ss *Storageserver) GetServers(args *storageproto.GetServersArgs,
   if len(ss.nodes) != ss.numnodes {
     fmt.Println("GetServer not ready")
     reply.Ready = false
-    reply.Servers = nil
     return nil
   }
-
-  reply.Ready = true
 
   servers := make([]storageproto.Node, ss.numnodes)
   i := 0
   for node, _ := range ss.nodes {
+    //fmt.Printf("i: %d, info: %v\n", i, node)
     servers[i] = node
     i++
   }
   reply.Servers = servers
-	return nil
+  reply.Ready = true
+
+  return nil
 }
 
 func isTimeout(holder leaseHolder) bool {
@@ -248,12 +249,17 @@ func (ss *Storageserver) Get(args *storageproto.GetArgs,
 
   val, present := ss.hash[args.Key]
   if !present {
+    reply.Status = 1
+    return nil
     //if the whole system only have one storage node
     if ss.numnodes == 1 {
       reply.Status = storageproto.EKEYNOTFOUND
     } else {
+      //reply.Status = storageproto.EKEYNOTFOUND
       reply.Status = storageproto.EWRONGSERVER
     }
+
+    fmt.Printf("storage GET key %s failed, nonexist\n", args.Key)
     //ss.rwlock.RUnlock()
     return nil
   }
