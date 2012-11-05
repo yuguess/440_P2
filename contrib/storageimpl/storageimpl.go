@@ -26,9 +26,15 @@ import (
 
 const DEFAULT_MASTER_PORT = 9009
 
-type leaseEntry struct {
+type leaseHolder struct {
   holderAddr string
   issueTime time.Time
+}
+
+type leaseEntry struct {
+  holders []leaseHolder
+  pending *bool
+  mtx *sync.Mutex
 }
 
 type Storageserver struct {
@@ -38,9 +44,9 @@ type Storageserver struct {
   isMaster bool //identify whether this node is master node
   nodes map[storageproto.Node] bool //master node store all other servers info
   numnodes int
-  rwlock sync.RWMutex //reader writer lock 
+  //rwlock sync.RWMutex //reader writer lock 
 
-  leasePool map[string] []leaseEntry
+  leasePool map[string] leaseEntry
 }
 
 func reallySeedTheDamnRNG() {
@@ -52,8 +58,8 @@ func NewStorageserver(master string, numnodes int, portnum int,
                                         nodeid uint32) *Storageserver {
 
   lsplog.SetVerbose(3)
-  lsplog.Vlogf(3, "Create New Storage Server")
-  lsplog.Vlogf(3, "master:%s, numnodes:%d, portnum:%d, nodeid:%d",
+  fmt.Println("Create New Storage Server")
+  fmt.Printf("master:%s, numnodes:%d, portnum:%d, nodeid:%d\n",
                                       master, numnodes, portnum, nodeid)
   var masterNode *rpc.Client
   var regArgs storageproto.RegisterArgs
@@ -63,9 +69,13 @@ func NewStorageserver(master string, numnodes int, portnum int,
   var nodes = make(map[storageproto.Node] bool)
 
   storage.nodeid = nodeid
-  storage.leasePool = make(map[string] []leaseEntry)
+  storage.leasePool = make(map[string] leaseEntry)
 
-  if master == "" || numnodes == 1{
+  selfAddr := fmt.Sprintf("localhost:%d",portnum)
+
+  if master == selfAddr || numnodes == 1 {
+    fmt.Printf("for master node\n")
+
     //for master node
     storage.isMaster = true
     storage.portnum = DEFAULT_MASTER_PORT
@@ -84,7 +94,7 @@ func NewStorageserver(master string, numnodes int, portnum int,
     storage.isMaster = false
     storage.portnum = portnum
 
-    lsplog.Vlogf(3, "for slave node")
+    fmt.Printf("for slave node\n")
 
     masterNode, err = rpc.DialHTTP("tcp", master)
     if lsplog.CheckReport(1, err) {
@@ -94,7 +104,7 @@ func NewStorageserver(master string, numnodes int, portnum int,
     for i := 0; (regReply.Ready == false) && (i < 5); i++ {
       time.Sleep(1000 * time.Millisecond)
 
-      err := masterNode.Call("StorageRPC.RegisterServer", &regArgs, &regReply)
+      err := masterNode.Call("StorageRPC.Register", &regArgs, &regReply)
       if lsplog.CheckReport(1, err) {
         lsplog.Vlogf(3, "slave %d call RegisterServer %d time failed",
                                                     i + 1, portnum)
@@ -110,7 +120,7 @@ func NewStorageserver(master string, numnodes int, portnum int,
 // Non-master servers to the master
 func (ss *Storageserver) RegisterServer(args *storageproto.RegisterArgs,
                                     reply *storageproto.RegisterReply) error {
-  lsplog.Vlogf(0, "master registerServer invoked")
+  fmt.Printf("st registerServer invoked\n")
 
   if !ss.isMaster {
     lsplog.Vlogf(0, "WARNING:Calling a non-master node to register")
@@ -121,14 +131,18 @@ func (ss *Storageserver) RegisterServer(args *storageproto.RegisterArgs,
   if !present {
     //add to nodes
     ss.nodes[args.ServerInfo] = true
+    fmt.Println("add nodes ", args.ServerInfo)
   }
 
+  fmt.Printf("master collect slave info %d/%d\n", len(ss.nodes), ss.numnodes)
+
+  reply.Servers = nil
+
   if len(ss.nodes) == ss.numnodes {
-    reply.Ready = true
+    ss.GetServers(nil, reply)
   } else {
     reply.Ready = false
   }
-  reply.Servers = nil
 
 	return nil
 }
@@ -136,21 +150,22 @@ func (ss *Storageserver) RegisterServer(args *storageproto.RegisterArgs,
 func (ss *Storageserver) GetServers(args *storageproto.GetServersArgs,
                                     reply *storageproto.RegisterReply) error {
 
-  lsplog.Vlogf(0, "Storage GetServer invoked")
+  fmt.Println("Storage GetServer invoked")
 
   if !ss.isMaster {
-    lsplog.Vlogf(0, "WARNING:Calling a non-master node for GetServers")
+    fmt.Println("WARNING:Calling a non-master node for GetServers")
     return lsplog.MakeErr("Calling a non-master node to GetServers")
   }
 
   if len(ss.nodes) != ss.numnodes {
-    lsplog.Vlogf(3, "GetServer not ready")
+    fmt.Println("GetServer not ready")
     reply.Ready = false
     reply.Servers = nil
     return nil
   }
 
   reply.Ready = true
+
   servers := make([]storageproto.Node, ss.numnodes)
   i := 0
   for node, _ := range ss.nodes {
@@ -161,8 +176,8 @@ func (ss *Storageserver) GetServers(args *storageproto.GetServersArgs,
 	return nil
 }
 
-func isTimeout(entry leaseEntry) bool {
-  dur := time.Since(entry.issueTime).Seconds()
+func isTimeout(holder leaseHolder) bool {
+  dur := time.Since(holder.issueTime).Seconds()
   if dur > (storageproto.LEASE_SECONDS + storageproto.LEASE_GUARD_SECONDS) {
     return true
   }
@@ -170,7 +185,7 @@ func isTimeout(entry leaseEntry) bool {
   return false
 }
 
-func search(list []leaseEntry, addr string) *leaseEntry{
+func search(list []leaseHolder, addr string) *leaseHolder {
   for _, v := range list {
     if v.holderAddr == addr {
       return &v
@@ -182,31 +197,45 @@ func search(list []leaseEntry, addr string) *leaseEntry{
 func (ss *Storageserver) addLeasePool(args *storageproto.GetArgs,
                                   lease *storageproto.LeaseStruct) error {
 
-  list, present := ss.leasePool[args.Key]
+  fmt.Printf("add key %s to lease pool\n", args.Key)
+
+  var tmp = false
+  var mtx sync.Mutex
+
+  entry, present := ss.leasePool[args.Key]
 
   lease.Granted = true
   lease.ValidSeconds = storageproto.LEASE_SECONDS
 
   if present {
     //make sure do not grant duplicate lease 
-    holder := search(list, args.LeaseClient)
+    holder := search(entry.holders, args.LeaseClient)
     if holder != nil {
-      if isTimeout(*holder) {
+
+      fmt.Printf("holder isTimeout %t, pending %t\n", isTimeout(*holder) ,
+                                                  *(entry.pending))
+
+      if isTimeout(*holder) || !(*(entry.pending))  {
         holder.issueTime = time.Now()
       } else {
-        lsplog.Vlogf(0, "WARNING: issue duplicate lease")
         lease.Granted = false
         lease.ValidSeconds = 0
         return lsplog.MakeErr("trying to issue duplicate lease")
       }
+
       return nil
     }
+  } else {
+    ss.leasePool[args.Key] = leaseEntry{nil, nil, &mtx}
+    entry = ss.leasePool[args.Key]
+    entry.pending = &tmp
   }
 
-  entry := make([]leaseEntry, 1)
-  entry[0] = leaseEntry{args.LeaseClient, time.Now()}
-  ss.leasePool[args.Key] = append(entry, list...)
+  holder := make([]leaseHolder, 1)
+  holder[0] = leaseHolder{args.LeaseClient, time.Now()}
 
+  entry.holders = append(holder, (entry.holders)...)
+  (ss.leasePool[args.Key]) = entry
   return nil
 }
 
@@ -214,12 +243,18 @@ func (ss *Storageserver) addLeasePool(args *storageproto.GetArgs,
 // These should do something! :-)
 func (ss *Storageserver) Get(args *storageproto.GetArgs,
                               reply *storageproto.GetReply) error {
-  ss.rwlock.RLock()
+  //ss.rwlock.RLock()
+  fmt.Printf("try to GET key %s\n", args.Key)
 
   val, present := ss.hash[args.Key]
   if !present {
-    reply.Status = storageproto.EKEYNOTFOUND
-    ss.rwlock.RUnlock()
+    //if the whole system only have one storage node
+    if ss.numnodes == 1 {
+      reply.Status = storageproto.EKEYNOTFOUND
+    } else {
+      reply.Status = storageproto.EWRONGSERVER
+    }
+    //ss.rwlock.RUnlock()
     return nil
   }
 
@@ -228,14 +263,14 @@ func (ss *Storageserver) Get(args *storageproto.GetArgs,
     lsplog.Vlogf(0, "WARNING: unmarshal data generate an error")
   }
 
-  lsplog.Vlogf(3, "Storage Get key %s, val %s", args.Key, reply.Value)
-  reply.Status = storageproto.OK
-
   if args.WantLease {
     ss.addLeasePool(args, &(reply.Lease))
   }
 
-  ss.rwlock.RUnlock()
+  fmt.Printf("Storage Get key %s, val %s, lease %t\n",
+                                args.Key, reply.Value, reply.Lease.Granted)
+  reply.Status = storageproto.OK
+  //ss.rwlock.RUnlock()
 	return nil
 }
 
@@ -244,14 +279,18 @@ func (ss *Storageserver) GetList(args *storageproto.GetArgs,
 
   lsplog.Vlogf(3, "storage try to getlist with key %s", args.Key)
 
-  ss.rwlock.RLock()
+  //ss.rwlock.RLock()
 
   val, present := ss.hash[args.Key]
   if !present {
+    if ss.numnodes == 1 {
       reply.Status = storageproto.EKEYNOTFOUND
-      reply.Value = nil
-      ss.rwlock.RUnlock()
-      return nil
+    } else {
+      reply.Status = storageproto.EWRONGSERVER
+    }
+    reply.Value = nil
+    //ss.rwlock.RUnlock()
+    return nil
   }
 
   lsplog.Vlogf(3, "storage getlist key %s, val %s", args.Key, val)
@@ -267,7 +306,7 @@ func (ss *Storageserver) GetList(args *storageproto.GetArgs,
     ss.addLeasePool(args, &(reply.Lease))
   }
 
-  ss.rwlock.RUnlock()
+  //ss.rwlock.RUnlock()
   return nil
 }
 
@@ -275,19 +314,22 @@ func (ss *Storageserver) Put(args *storageproto.PutArgs,
                                         reply *storageproto.PutReply) error {
   var err error
 
-  lsplog.Vlogf(0, "storage put invoked!")
+  fmt.Printf("st svr put invoked key %s, val %s !!!\n", args.Key, args.Value)
 
-  ss.rwlock.Lock()
+  //ss.rwlock.Lock()
+  if entry, present := ss.leasePool[args.Key]; present {
+    fmt.Printf("try to put to %s still lease pool, call revoke!!!\n", args.Key)
+    entry.mtx.Lock()
+    ss.revokeLeaseHolders(args.Key)
+    entry.mtx.Unlock()
+  }
 
   _, present := ss.hash[args.Key]
   if present {
-    reply.Status = storageproto.EITEMEXISTS
-    ss.rwlock.Unlock()
+    ss.hash[args.Key], _ = json.Marshal(args.Value)
+    reply.Status = storageproto.OK
+    //ss.rwlock.Unlock()
     return nil
-  }
-
-  if holders, present := ss.leasePool[args.Key]; present {
-    revokeLeaseHolders(args.Key, holders)
   }
 
   if args.Value == "" {
@@ -304,55 +346,95 @@ func (ss *Storageserver) Put(args *storageproto.PutArgs,
 
   reply.Status = storageproto.OK
 
-  ss.rwlock.Unlock()
+  //ss.rwlock.Unlock()
   lsplog.Vlogf(0, "storage put complete!")
   return nil
 }
 
-func revokeLeaseHolders(key string, holders []leaseEntry) error {
-  var args *storageproto.RevokeLeaseArgs
-  var reply *storageproto.RevokeLeaseReply
+func boundedWaitCall(args *storageproto.RevokeLeaseArgs,
+  reply *storageproto.RevokeLeaseReply, con *rpc.Client, doneChan chan int) {
 
-  for _, entry := range holders {
-    if isTimeout(entry) {
+  err := con.Call("CacheRPC.RevokeLease", &args, &reply)
+  if lsplog.CheckReport(1, err) {
+      fmt.Printf("Try revoke lease holder failed\n!")
+  }
+
+  doneChan <- 1
+  return
+}
+
+func (ss *Storageserver) revokeLeaseHolders(key string) error {
+  var args storageproto.RevokeLeaseArgs
+  var reply storageproto.RevokeLeaseReply
+  var doneChan chan int
+
+  entry := (ss.leasePool[key])
+
+  (*(entry.pending)) = true
+  fmt.Printf("set key %s pending\n", key)
+
+  for _, holder := range entry.holders {
+
+    if isTimeout(holder) {
+      fmt.Printf("revoke holder %s expire\n", key)
       continue;
     }
 
-    svr, err := rpc.DialHTTP("tcp", entry.holderAddr)
+    svr, err := rpc.DialHTTP("tcp", holder.holderAddr)
     if lsplog.CheckReport(1, err) {
-      return nil
+      fmt.Printf("revoke dial %s failed", holder.holderAddr)
     }
 
-    err = svr.Call("Libstore.RevokeLease", &args, &reply)
-    if lsplog.CheckReport(1, err) {
-      lsplog.Vlogf(0,
-              "WARNING: try revoke lease holder %d failed !", entry.holderAddr)
-      return err
+    args.Key = key
+
+    //ensure rpc is bounded waiting
+    go boundedWaitCall(&args, &reply, svr, doneChan)
+
+    select {
+    case <- doneChan:
+          break
+    case <- time.After((storageproto.LEASE_SECONDS +
+                        storageproto.LEASE_GUARD_SECONDS) * time.Second):
+		      break
     }
+
+    fmt.Printf("revoke complete rpc to holder %s\n", holder.holderAddr)
   }
+  (*(entry.pending)) = false
+  fmt.Printf("cannel key %s pending !\n", key)
   return nil
 }
 
 func (ss *Storageserver) AppendToList(args *storageproto.PutArgs,
                                         reply *storageproto.PutReply) error {
-  ss.rwlock.Lock()
 
-  val, present := ss.hash[args.Key]
+  fmt.Printf("try append %s to list %s\n", args.Value, args.Key)
+
+  //ss.rwlock.Lock()
+
+  _, present := ss.hash[args.Key]
   if !present {
-    lsplog.Vlogf(3, "try to append to %s list %s not exist", args.Key, args.Value)
+    ss.hash[args.Key] = nil
+    /*
+    fmt.Printf("try append %s list with %s, list not exist\n",args.Key, args.Value)
     reply.Status = storageproto.EKEYNOTFOUND
     ss.rwlock.Unlock()
     return nil
+    */
   }
 
-  if holders, present := ss.leasePool[args.Key]; present {
-    revokeLeaseHolders(args.Key, holders)
+  entry, present := ss.leasePool[args.Key]
+
+  if present {
+    //this mutex will ''queue'' later put request while revoking
+    entry.mtx.Lock()
+    ss.revokeLeaseHolders(args.Key)
   }
 
-  lsplog.Vlogf(3, "storage append to %s list %s", args.Key, args.Value)
+  fmt.Printf("storage append to %s list %s\n", args.Key, args.Value)
 
   var list []string;
-  err := json.Unmarshal([]byte(val), &list)
+  err := json.Unmarshal([]byte(ss.hash[args.Key]), &list)
   if err != nil {
     lsplog.Vlogf(0, "WARNING: unmarshal data generate an error")
   }
@@ -361,12 +443,12 @@ func (ss *Storageserver) AppendToList(args *storageproto.PutArgs,
   for _, v := range list {
     if v == args.Value {
       reply.Status = storageproto.EITEMEXISTS
-      ss.rwlock.Unlock()
+      //ss.rwlock.Unlock()
       return nil
     }
   }
 
-  list = append([]string{args.Value}, list...)
+  list = append(list, ([]string{args.Value})...)
 
   ss.hash[args.Key], err = json.Marshal(list)
   if err != nil {
@@ -375,7 +457,12 @@ func (ss *Storageserver) AppendToList(args *storageproto.PutArgs,
 
   reply.Status = storageproto.OK
 
-  ss.rwlock.Unlock()
+  fmt.Printf("comp apd %s to %s,val %s\n", args.Value, args.Key, ss.hash[args.Key])
+
+  //ss.rwlock.Unlock()
+  if present {
+    entry.mtx.Unlock()
+  }
 
 	return nil
 }
@@ -384,18 +471,22 @@ func (ss *Storageserver) RemoveFromList(args *storageproto.PutArgs,
                                         reply *storageproto.PutReply) error {
   lsplog.Vlogf(0, "removeFromList key %s", args.Key)
 
-  ss.rwlock.Lock()
+  //ss.rwlock.Lock()
 
   val, present := ss.hash[args.Key]
   if !present {
       lsplog.Vlogf(3, "try to remove, key %s does not exist", args.Key)
       reply.Status = storageproto.EKEYNOTFOUND
-      ss.rwlock.Unlock()
+      //ss.rwlock.Unlock()
       return nil
   }
 
-  if holders, present := ss.leasePool[args.Key]; present {
-    revokeLeaseHolders(args.Key, holders)
+  entry, present := ss.leasePool[args.Key]
+
+  if present {
+    entry.mtx.Lock()
+    ss.revokeLeaseHolders(args.Key)
+    
   }
 
   var list []string;
@@ -414,14 +505,16 @@ func (ss *Storageserver) RemoveFromList(args *storageproto.PutArgs,
       }
 
       reply.Status = storageproto.OK
-      ss.rwlock.Unlock()
+      //ss.rwlock.Unlock()
       return nil
     }
   }
 
   reply.Status = storageproto.EITEMNOTFOUND
-
-  ss.rwlock.Unlock()
+  if present {
+    entry.mtx.Unlock()
+  }
+  //ss.rwlock.Unlock()
 	return nil
 }
 

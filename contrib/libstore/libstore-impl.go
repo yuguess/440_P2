@@ -364,9 +364,11 @@ func (ls *Libstore) iAppendToList(key, newitem string) error {
 func (ls *Libstore) RevokeLease(
     args *storageproto.RevokeLeaseArgs,
     reply *storageproto.RevokeLeaseReply) error {
+
+
   var valid bool
 
-  fmt.Printf("Revoking lease: %s\n", args.Key)
+  fmt.Printf("libstore Revoking lease: %s\n", args.Key)
 
   valid = ls.Leases.ClearEntry(args.Key)
   if !valid {

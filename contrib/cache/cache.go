@@ -7,7 +7,6 @@ package cache
 
 import (
   "container/list"
-  "fmt"
   "sync"
   "time"
   "P2-f12/official/lsplog"
