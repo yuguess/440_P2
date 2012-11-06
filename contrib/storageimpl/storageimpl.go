@@ -88,6 +88,12 @@ func NewStorageserver(master string, numnodes int, portnum int,
     self := storageproto.Node{master, nodeid}
     storage.nodes[self] = true
   } else {
+
+    masterNode, err = rpc.DialHTTP("tcp", master)
+    if lsplog.CheckReport(1, err) {
+      return nil
+    }
+
     regArgs.ServerInfo.HostPort = fmt.Sprintf("localhost:%d", portnum)
     regArgs.ServerInfo.NodeID = nodeid
 
@@ -96,20 +102,17 @@ func NewStorageserver(master string, numnodes int, portnum int,
     storage.portnum = portnum
 
     fmt.Printf("for slave node\n")
+    fmt.Printf("begin try $$$\n")
 
-    masterNode, err = rpc.DialHTTP("tcp", master)
-    if lsplog.CheckReport(1, err) {
-      return nil
-    }
-
-    for i := 0; (regReply.Ready == false) && (i < 5); i++ {
-      time.Sleep(1000 * time.Millisecond)
-
-      err := masterNode.Call("StorageRPC.Register", &regArgs, &regReply)
+    for i := 0; (regReply.Ready == false) && (i < 10); i++ {
+      fmt.Printf("try %d times\n", i)
+      masterNode.Call("StorageRPC.Register", &regArgs, &regReply)
+      /*
       if lsplog.CheckReport(1, err) {
         lsplog.Vlogf(3, "slave %d call RegisterServer %d time failed",
                                                     i + 1, portnum)
-      }
+      }*/
+      time.Sleep(1000 * time.Millisecond)
     }
   }
 
@@ -140,7 +143,16 @@ func (ss *Storageserver) RegisterServer(args *storageproto.RegisterArgs,
   reply.Servers = nil
 
   if len(ss.nodes) == ss.numnodes {
-    ss.GetServers(nil, reply)
+    reply.Ready = true
+    //ss.GetServers(nil, reply)
+    servers := make([]storageproto.Node, ss.numnodes)
+    i := 0
+    for node, _ := range ss.nodes {
+      //fmt.Printf("i: %d, info: %v\n", i, node)
+      servers[i] = node
+      i++
+    }
+  reply.Servers = servers
   } else {
     reply.Ready = false
   }
@@ -160,6 +172,10 @@ func (ss *Storageserver) GetServers(args *storageproto.GetServersArgs,
 
   if len(ss.nodes) != ss.numnodes {
     fmt.Println("GetServer not ready")
+
+    //what a hack here, need change if time possible
+    time.Sleep(time.Duration(2 * 1000) * time.Millisecond)
+
     reply.Ready = false
     return nil
   }
@@ -249,8 +265,6 @@ func (ss *Storageserver) Get(args *storageproto.GetArgs,
 
   val, present := ss.hash[args.Key]
   if !present {
-    reply.Status = 1
-    return nil
     //if the whole system only have one storage node
     if ss.numnodes == 1 {
       reply.Status = storageproto.EKEYNOTFOUND
@@ -342,7 +356,7 @@ func (ss *Storageserver) Put(args *storageproto.PutArgs,
     lsplog.Vlogf(3, "storage first put %s", args.Key)
     ss.hash[args.Key], err = json.Marshal([]string{})
   } else {
-    lsplog.Vlogf(3, "storage put %s, val %s", args.Key, args.Value)
+    //fmt.Printf("storage put %s, val %s", args.Key, args.Value)
     ss.hash[args.Key], err = json.Marshal(args.Value)
   }
 
@@ -353,7 +367,7 @@ func (ss *Storageserver) Put(args *storageproto.PutArgs,
   reply.Status = storageproto.OK
 
   //ss.rwlock.Unlock()
-  lsplog.Vlogf(0, "storage put complete!")
+  //fmt.Println("storage put complete!")
   return nil
 }
 
