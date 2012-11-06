@@ -120,9 +120,10 @@ func iNewLibstore(server, myhostport string, flags int) (*Libstore, error) {
   store.RPCConn = make([]*rpc.Client, len(store.Nodes))
 
   sort.Sort(store.Nodes)
+  /*
   for i := 0; i < len(store.Nodes); i++ {
     fmt.Printf("%v\n", store.Nodes[i])
-  }
+  }*/
 
   store.Leases = cache.NewCache()
   if lsplog.CheckReport(1, err) {
@@ -160,20 +161,19 @@ func (ls *Libstore) GetServer(key string) (*rpc.Client, error) {
   var svr int
   var err error
 
-  lsplog.Vlogf(3, "libstore-impl GetServer Invoked")
+  //lsplog.Vlogf(3, "libstore GetServer Invoked")
 
   id = Storehash(strings.Split(key, ":")[0])
 
   // returns the index of the first server after the key's hash
   svr = sort.Search(
-      len(ls.Nodes), func(i int) bool { return ls.Nodes[i].NodeID > id })
-  svr %= len(ls.Nodes)
+      len(ls.Nodes), func(i int) bool { return ls.Nodes[i].NodeID >= id })
+  svr = (svr) % len(ls.Nodes)
 
-  fmt.Printf("%s -> %d (%d)\n", key, id, svr)
+  //lsplog.Vlogf(0, "%s -> %d (%d)\n", key, id, svr)
 
   if ls.RPCConn[svr] == nil {
-    fmt.Printf("Caching RPC connection to %s.\n", ls.Nodes[svr].HostPort)
-
+    lsplog.Vlogf(0, "Caching RPC connection to %s.\n", ls.Nodes[svr].HostPort)
     ls.RPCConn[svr], err = rpc.DialHTTP("tcp", ls.Nodes[svr].HostPort)
     if lsplog.CheckReport(1, err) {
       return nil, err
@@ -204,6 +204,8 @@ func (ls *Libstore) iGet(key string) (string, error) {
     args.WantLease = true
   }
 
+  //lsplog.Vlogf(0, "libstore Get %s\n", key)
+
   cli, err = ls.GetServer(key)
   if lsplog.CheckReport(1, err) {
     return "", err
@@ -214,18 +216,17 @@ func (ls *Libstore) iGet(key string) (string, error) {
     args.WantLease = false
   }
 
-  //fmt.Printf("Get args:%v\n", args)
+  //lsplog.Vlogf(0, "Get args:%v\n", args)
 
   err = cli.Call("StorageRPC.Get", &args, &reply)
   if lsplog.CheckReport(1, err) {
     return "", err
   }
 
-  //fmt.Printf("Get reply:%v#!!\n", reply)
+  //lsplog.Vlogf(0, "Get reply:%v#!!\n", reply)
   //fmt.Printf("Get reply granted:%v#!#\n", reply.Lease.Granted)
 
   if reply.Lease.Granted {
-    fmt.Printf("Grant Lease###\n")
     ls.Leases.LeaseGranted(key, reply.Value, reply.Lease)
   }
 
@@ -247,16 +248,19 @@ func (ls *Libstore) iPut(key, value string) error {
   var reply storageproto.PutReply
   var err error
 
-  lsplog.Vlogf(0, "libstore iput invoked!")
+  //lsplog.Vlogf(0, "libstore put %s->%s!", key, value)
 
   cli, err = ls.GetServer(key)
   if lsplog.CheckReport(1, err) {
     return err
   }
 
-  lsplog.Vlogf(0, "libstore getserver complete!")
-
-  //fmt.Printf("put args %v\n", args)
+  //lsplog.Vlogf(0, "libstore getserver complete!")
+  //lsplog.Vlogf(0, "put args %v\n", args)
+  /*
+  fmt.Printf("put args %v\n", args)
+  fmt.Printf("here2\n")
+  */
 
   err = cli.Call("StorageRPC.Put", &args, &reply)
   if lsplog.CheckReport(1, err) {
@@ -264,6 +268,7 @@ func (ls *Libstore) iPut(key, value string) error {
   }
 
   //fmt.Printf("put reply %v\n", reply)
+  //lsplog.Vlogf(0, "put reply %v\n", reply)
 
   if reply.Status != storageproto.OK {
     return MakeErr("Put()", reply.Status)
@@ -298,10 +303,14 @@ func (ls *Libstore) iGetList(key string) ([]string, error) {
     return nil, err
   }
 
+  //lsplog.Vlogf(0, "GetList args %v", args)
+
   err = cli.Call("StorageRPC.GetList", &args, &reply)
   if lsplog.CheckReport(1, err) {
     return nil, err
   }
+
+  //lsplog.Vlogf(0, "GetList reply %v", reply)
 
   if reply.Lease.Granted {
     ls.Leases.LeaseGranted(key, reply.Value, reply.Lease)
@@ -358,10 +367,14 @@ func (ls *Libstore) iAppendToList(key, newitem string) error {
     return err
   }
 
+  //lsplog.Vlogf(0, "AppendToList args %v\n", args)
+
   err = cli.Call("StorageRPC.AppendToList", &args, &reply)
   if lsplog.CheckReport(1, err) {
     return err
   }
+
+  //lsplog.Vlogf(0, "AppendToList reply %v\n", reply)
 
   if reply.Status != storageproto.OK {
     return MakeErr("AppendToList()", reply.Status)
@@ -383,7 +396,7 @@ func (ls *Libstore) RevokeLease(
 
   var valid bool
 
-  fmt.Printf("libstore Revoking lease: %s\n", args.Key)
+  //fmt.Printf("libstore Revoking lease: %s\n", args.Key)
 
   valid = ls.Leases.ClearEntry(args.Key)
   if !valid {

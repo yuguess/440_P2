@@ -60,7 +60,7 @@ func (cache *Cache) Get(
   var valid bool
   var data interface{}
 
-  fmt.Printf("Cache get: %s\n", key)
+  //fmt.Printf("Cache get: %s\n", key)
 
   cache.Lock.Lock()
   cache.ClearExpired()
@@ -71,8 +71,8 @@ func (cache *Cache) Get(
     entry.Queries = list.New()
     entry.Queries.PushBack(time.Now())
 
-    fmt.Printf("Cache entry: %+v\n", *entry)
-    fmt.Printf("Queries: %+v\n", entry.Queries)
+    //fmt.Printf("Cache entry: %+v\n", *entry)
+    //fmt.Printf("Queries: %+v\n", entry.Queries)
     cache.Map[key] = entry
 
     cache.Lock.Unlock()
@@ -90,10 +90,10 @@ func (cache *Cache) Get(
 
   entry.Queries.PushBack(time.Now())
 
-  fmt.Printf("Cache entry: %v\n", *entry)
+  //fmt.Printf("Cache entry: %v\n", *entry)
 
   if entry.Queries.Len() > storageproto.QUERY_CACHE_THRESH {
-    fmt.Printf("QUERY_CACHE_THRESH reached. Asking for lease.\n")
+    //fmt.Printf("QUERY_CACHE_THRESH reached. Asking for lease.\n")
     args.WantLease = true
   }
 
@@ -202,5 +202,5 @@ func (cache *Cache) LeaseGranted(
   entry.LeaseDur = time.Duration(lease.ValidSeconds) * time.Second
 
   cache.Lock.Unlock()
-  fmt.Printf("Lease granted complete\n")
+  //fmt.Printf("Lease granted complete\n")
 }
