@@ -68,7 +68,7 @@ func (list NodeList) Less(i, j int) bool {
 }
 
 /**@brief helper function for sorting  
- * @param server master server addr 
+ * @param server master storage server addr 
  * @param myhostport trib server's port  
  * @param flags 
  * @return *Libstore 
@@ -209,12 +209,23 @@ func (ls *Libstore) iGet(key string) (string, error) {
     return "", err
   }
 
+  //listen on no port to accept revoke
+  if ls.Addr == "" {
+    args.WantLease = false
+  }
+
+  //fmt.Printf("Get args:%v\n", args)
+
   err = cli.Call("StorageRPC.Get", &args, &reply)
   if lsplog.CheckReport(1, err) {
     return "", err
   }
 
+  //fmt.Printf("Get reply:%v#!!\n", reply)
+  //fmt.Printf("Get reply granted:%v#!#\n", reply.Lease.Granted)
+
   if reply.Lease.Granted {
+    fmt.Printf("Grant Lease###\n")
     ls.Leases.LeaseGranted(key, reply.Value, reply.Lease)
   }
 
@@ -245,10 +256,14 @@ func (ls *Libstore) iPut(key, value string) error {
 
   lsplog.Vlogf(0, "libstore getserver complete!")
 
+  //fmt.Printf("put args %v\n", args)
+
   err = cli.Call("StorageRPC.Put", &args, &reply)
   if lsplog.CheckReport(1, err) {
     return err
   }
+
+  //fmt.Printf("put reply %v\n", reply)
 
   if reply.Status != storageproto.OK {
     return MakeErr("Put()", reply.Status)

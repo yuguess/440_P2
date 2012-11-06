@@ -27,7 +27,7 @@ type Tribserver struct {
  */
 func NewTribserver(storagemaster, myhostport string) *Tribserver {
   lsplog.SetVerbose(3)
-  lsplog.Vlogf(3, "st_master:%s, port:%s", storagemaster, myhostport)
+  fmt.Printf("st_master:%s, port:%s\n", storagemaster, myhostport)
 
   var svr *Tribserver = new(Tribserver)
   var err error

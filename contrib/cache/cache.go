@@ -83,6 +83,8 @@ func (cache *Cache) Get(
     data = entry.Data
     cache.Lock.Unlock()
 
+    //fmt.Printf("Already in Cache %s->%v\n", key, data)
+
     return data, nil
   }
 
@@ -144,7 +146,7 @@ func (cache *Cache) ClearExpired() {
 
     entry.Clean()
 
-    fmt.Printf("No recent queries: %s\n", key)
+    //fmt.Printf("No recent queries: %s\n", key)
     if entry.Queries.Len() == 0 {
       delete(cache.Map, key)
     }
@@ -184,7 +186,7 @@ func (cache *Cache) LeaseGranted(
   var valid bool
 
   cache.Lock.Lock()
-  fmt.Printf("Lease granted: %s (%v)\n", key, data)
+  //fmt.Printf("Lease granted: %s (%v)\n", key, data)
 
   entry, valid = cache.Map[key]
   if !valid {
@@ -194,9 +196,11 @@ func (cache *Cache) LeaseGranted(
     cache.Map[key] = entry
   }
 
+  entry.Data = data
   entry.Granted = true
   entry.LeaseTime = time.Now()
   entry.LeaseDur = time.Duration(lease.ValidSeconds) * time.Second
 
   cache.Lock.Unlock()
+  fmt.Printf("Lease granted complete\n")
 }
